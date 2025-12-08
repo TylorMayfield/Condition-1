@@ -1,0 +1,32 @@
+{
+  "name": "condition-1",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Condition-1 Game",
+  "author": "User",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "electron:dev": "concurrently \"vite\" \"electron .\"",
+    "make": "electron-forge make"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.10.2",
+    "@electron-forge/maker-squirrel": "^7.10.2",
+    "@electron-forge/maker-zip": "^7.10.2",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@types/three": "^0.181.0",
+    "cannon-es": "^0.20.0",
+    "three": "^0.181.2",
+    "vitest": "^4.0.15"
+  }
+}
