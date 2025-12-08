@@ -3,6 +3,7 @@ export class Input {
     private mouseButtons: Map<number, boolean> = new Map();
     public mouseDelta: { x: number, y: number } = { x: 0, y: 0 };
     public isPointerLocked: boolean = false;
+    private previousKeys: Map<string, boolean> = new Map();
 
     constructor() {
         window.addEventListener('keydown', (e) => this.keys.set(e.code, true));
@@ -36,6 +37,10 @@ export class Input {
         return this.keys.get(code) || false;
     }
 
+    public getKeyDown(code: string): boolean {
+        return (this.keys.get(code) || false) && !(this.previousKeys.get(code) || false);
+    }
+
     public getMouseButton(button: number): boolean {
         return this.mouseButtons.get(button) || false;
     }
@@ -45,7 +50,8 @@ export class Input {
     }
 
     public update() {
-        // distinct from Game loop reset
+        // Update previous keys
+        this.previousKeys = new Map(this.keys);
     }
 
     // Call this specifically in game loop BEFORE update logic if we want to reset deltas per frame

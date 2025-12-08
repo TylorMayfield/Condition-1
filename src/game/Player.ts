@@ -45,9 +45,6 @@ export class Player extends GameObject {
     }
 
     private updateHUD() {
-        const healthEl = document.getElementById('health');
-        const ammoEl = document.getElementById('ammo');
-        if (healthEl) healthEl.innerText = this.health.toString();
-        if (ammoEl) ammoEl.innerText = this.weapon.getAmmoInfo();
+        // Old HUD logic disabled
     }
 }

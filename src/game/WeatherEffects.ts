@@ -88,7 +88,10 @@ export class WeatherEffects {
             // Simple approach: spawn 1-5 based on intensity
             if (this.spawnTimer > spawnRate) {
                 this.spawnTimer = 0;
-                this.spawnParticle(weather === WeatherType.Rain ? 'rain' : 'snow');
+                // Only spawn rain on lens, snow looks bad sticking
+                if (weather === WeatherType.Rain) {
+                    this.spawnParticle('rain');
+                }
             }
         }
 

@@ -167,16 +167,17 @@ export class Game {
         if (!this.isRunning) return;
         requestAnimationFrame(() => this.loop());
 
-        // Input Update to catch keys
-        this.input.update();
-
         // Pause Toggle
-        if (this.input.getKey('Enter')) {
+        if (this.input.getKeyDown('Enter')) {
             this.togglePause();
         }
 
         if (this.isPaused) {
             this.render();
+            // Even if paused, we need to update input to prevent sticky keys if we toggle back? 
+            // Actually if we return here, `input.update()` at bottom won't run.
+            // We should probably run input.update() even if paused, or just not return early?
+            this.input.update();
             return;
         }
 
@@ -187,6 +188,9 @@ export class Game {
         // Reset mouse delta after frame
         this.input.mouseDelta.x = 0;
         this.input.mouseDelta.y = 0;
+
+        // Update Input state (must be last)
+        this.input.update();
     }
 
     private update(dt: number) {
@@ -213,9 +217,10 @@ export class Game {
         this.hudManager?.update(dt);
 
         // Squad Orders Input (Temp)
-        if (this.input.getKey('Digit1')) this.squadManager.issueOrder(0); // Follow
-        if (this.input.keys.get('Digit2') || this.input.getKey('Digit2')) this.squadManager.issueOrder(1); // Hold
-        if (this.input.getKey('Digit3')) this.squadManager.issueOrder(2); // Attack
+        // Squad Orders Input (Temp)
+        if (this.input.getKeyDown('Digit1')) this.squadManager.issueOrder(0); // Follow
+        if (this.input.getKeyDown('Digit2')) this.squadManager.issueOrder(1); // Hold
+        if (this.input.getKeyDown('Digit3')) this.squadManager.issueOrder(2); // Attack
 
         this.skyboxManager?.update(dt);
     }

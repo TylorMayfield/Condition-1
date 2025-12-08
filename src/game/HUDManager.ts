@@ -11,6 +11,11 @@ export class HUDManager {
     private compassDisplay: HTMLDivElement;
     private compassMarker!: HTMLDivElement;
     private squadDisplay: HTMLDivElement;
+    private fpsDisplay: HTMLDivElement;
+    // private vignette: HTMLDivElement; // Not stored if not accessed
+
+    private frameCount: number = 0;
+    private timeElapsed: number = 0;
 
     constructor(game: Game) {
         this.game = game;
@@ -31,6 +36,8 @@ export class HUDManager {
         this.ammoDisplay = this.createAmmoDisplay();
         this.compassDisplay = this.createCompassDisplay();
         this.squadDisplay = this.createSquadDisplay();
+        this.fpsDisplay = this.createFPSDisplay();
+        this.createVignette();
     }
 
     private createHealthDisplay(): HTMLDivElement {
@@ -53,6 +60,36 @@ export class HUDManager {
         div.style.textAlign = 'right';
         div.innerHTML = 'AMMO: -- / --';
         this.container.appendChild(div);
+        return div;
+    }
+
+    private createFPSDisplay(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '10px';
+        div.style.left = '10px';
+        div.style.fontSize = '14px';
+        div.style.color = '#00ff00';
+        div.innerText = 'FPS: 60';
+        this.container.appendChild(div);
+        return div;
+    }
+
+    private createVignette(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '0';
+        div.style.left = '0';
+        div.style.width = '100%';
+        div.style.height = '100%';
+        div.style.pointerEvents = 'none';
+        div.style.background = 'radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.9) 100%)';
+        // Prepend to be behind other elements
+        if (this.container.firstChild) {
+            this.container.insertBefore(div, this.container.firstChild);
+        } else {
+            this.container.appendChild(div);
+        }
         return div;
     }
 
@@ -102,20 +139,29 @@ export class HUDManager {
     }
 
     public update(_dt: number) {
+        this.frameCount++;
+        this.timeElapsed += _dt;
+        if (this.timeElapsed >= 1.0) {
+            this.fpsDisplay.innerText = `FPS: ${this.frameCount}`;
+            this.frameCount = 0;
+            this.timeElapsed = 0;
+        }
+
         if (!this.game.player) return;
 
         // Update Health
         if (this.healthDisplay) {
             this.healthDisplay.innerText = `HEALTH: ${this.game.player.health}%`;
         }
-        if (this.compassDisplay && this.squadDisplay) {
-            // Placeholder usage
-        }
 
         // Update Ammo
         const weapon = this.game.player.getCurrentWeapon(); // Need to ensure this exists or similar
         if (weapon) {
             this.ammoDisplay.innerHTML = `MAG: ${weapon.currentAmmo} <br> RES: ${weapon.reserveAmmo}`;
+        }
+
+        if (this.compassDisplay && this.squadDisplay) {
+            // Placeholder usage
         }
 
         // Update Compass
