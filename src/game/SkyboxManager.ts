@@ -5,20 +5,25 @@ export class SkyboxManager {
     private game: Game;
     private sunLight: THREE.DirectionalLight;
     private skyMesh!: THREE.Mesh;
-    private godraysMesh!: THREE.Mesh;
+    private clouds: THREE.Group[] = [];
 
     constructor(game: Game) {
         this.game = game;
         this.initSky();
-        this.initGodrays();
+        this.initClouds();
 
-        // Find existing sun or create new
-        // Game.ts setupLighting creates a dir light. Let's find it or just add ours.
-        // For simplicity, we add a controllable sun here.
-        this.sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
-        this.sunLight.position.set(50, 100, 50);
-        this.sunLight.castShadow = true;
-        this.game.scene.add(this.sunLight);
+        // Use the existing directional light from Game.ts instead of creating a duplicate
+        // This prevents over-lighting and conflicting shadows
+        const existingLight = (game as any).mainDirectionalLight;
+        if (existingLight) {
+            this.sunLight = existingLight;
+        } else {
+            // Fallback if light doesn't exist (shouldn't happen)
+            this.sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            this.sunLight.position.set(-3, 10, -10);
+            this.sunLight.castShadow = true;
+            this.game.scene.add(this.sunLight);
+        }
     }
 
     private initSky() {
@@ -26,7 +31,7 @@ export class SkyboxManager {
         const geo = new THREE.SphereGeometry(90, 32, 32);
         const mat = new THREE.ShaderMaterial({
             uniforms: {
-                topColor: { value: new THREE.Color(0x0077ff) },
+                topColor: { value: new THREE.Color(0x4da6ff) }, // Brighter blue
                 bottomColor: { value: new THREE.Color(0xffffff) },
                 offset: { value: 33 },
                 exponent: { value: 0.6 }
@@ -50,41 +55,76 @@ export class SkyboxManager {
                     gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
                 }
             `,
-            side: THREE.BackSide
+            side: THREE.BackSide,
+            // Ensure skybox doesn't participate in lighting calculations
+            lights: false,
+            fog: false
         });
 
         this.skyMesh = new THREE.Mesh(geo, mat);
+        // Ensure skybox doesn't interfere with lighting
+        this.skyMesh.castShadow = false;
+        this.skyMesh.receiveShadow = false;
+        this.skyMesh.frustumCulled = false; // Always render
         this.game.scene.add(this.skyMesh);
     }
 
-    private initGodrays() {
-        // Volumetric Cone Logic (simplified fake godrays)
-        // Adjust geometry to look like beams coming from sun direction
-        const geo = new THREE.ConeGeometry(20, 100, 8, 1, true);
-        const mat = new THREE.MeshBasicMaterial({
-            color: 0xffddaa,
-            transparent: true,
-            opacity: 0.1,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
-        });
-
-        this.godraysMesh = new THREE.Mesh(geo, mat);
-
-        // Position high up
-        this.godraysMesh.position.set(20, 40, 20);
-        this.godraysMesh.lookAt(0, 0, 0);
-
-        this.game.scene.add(this.godraysMesh);
+    private initClouds() {
+        // Create a few simple cloud meshes
+        const cloudCount = 8;
+        for (let i = 0; i < cloudCount; i++) {
+            // Random position in sky
+            const x = (Math.random() - 0.5) * 100;
+            const y = 20 + Math.random() * 30; // Height between 20-50
+            const z = (Math.random() - 0.5) * 100;
+            
+            // Simple cloud shape using multiple spheres
+            const cloudGroup = new THREE.Group();
+            
+            // Main cloud body
+            const geo = new THREE.SphereGeometry(3 + Math.random() * 2, 8, 8);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.6,
+                flatShading: true
+            });
+            
+            // Create cloud from multiple overlapping spheres
+            for (let j = 0; j < 5; j++) {
+                const cloudPart = new THREE.Mesh(geo, mat);
+                cloudPart.position.set(
+                    (Math.random() - 0.5) * 4,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 4
+                );
+                cloudPart.scale.set(
+                    0.8 + Math.random() * 0.4,
+                    0.6 + Math.random() * 0.3,
+                    0.8 + Math.random() * 0.4
+                );
+                cloudPart.castShadow = false;
+                cloudPart.receiveShadow = false;
+                cloudGroup.add(cloudPart);
+            }
+            
+            cloudGroup.position.set(x, y, z);
+            this.clouds.push(cloudGroup);
+            this.game.scene.add(cloudGroup);
+        }
     }
 
     public update(dt: number) {
-        // Rotate godrays slightly for dynamic effect
-        if (this.godraysMesh) {
-            this.godraysMesh.rotation.z += dt * 0.05;
-        }
-
-        // Move clouds?
+        // Move clouds slowly
+        this.clouds.forEach((cloud, index) => {
+            // Slow drift
+            cloud.position.x += dt * (0.1 + Math.sin(index) * 0.05);
+            cloud.rotation.y += dt * 0.01;
+            
+            // Wrap around if too far
+            if (cloud.position.x > 60) {
+                cloud.position.x = -60;
+            }
+        });
     }
 }

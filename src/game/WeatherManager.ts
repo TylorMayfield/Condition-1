@@ -79,10 +79,9 @@ export class WeatherManager {
             this.systems.push(sys);
             this.wind.set(0.1, 0, 0.1); // Light wind
         } else if (type === WeatherType.Snow) {
-            const sys = new THREE.Points(this.snowGeo, this.snowMat);
-            this.game.scene.add(sys);
-            this.systems.push(sys);
+
             this.wind.set(-0.5, 0, 0); // Stronger wind
+
         } else {
             this.wind.set(0, 0, 0);
         }
@@ -90,12 +89,18 @@ export class WeatherManager {
 
     public update(dt: number) {
         if (this.currentWeather === WeatherType.Clear) return;
+        
+        // Skip all processing if weather is Snow - snow particles are completely disabled
+        if (this.currentWeather === WeatherType.Snow) {
+            // Only update wind, no particle processing
+    
+            return;
+        }
 
-        // const range = 20; // bounding box size roughly
-
+        // Only process rain particles
         this.systems.forEach(sys => {
             const positions = sys.geometry.attributes.position.array as Float32Array;
-            const velocity = this.currentWeather === WeatherType.Rain ? this.rainVelocity : this.snowVelocity;
+            const velocity = this.rainVelocity; // Only rain now
 
             // Move with camera
             sys.position.x = this.game.camera.position.x;
@@ -103,10 +108,6 @@ export class WeatherManager {
 
             // Sim
             for (let i = 0; i < this.particleCount; i++) {
-                // We actually simulate local movement in the buffer, wrapping around
-                // Or we can just keep system static and move points?
-                // Easier: Move points in buffer relative to 0,0,0 and wrap.
-
                 let x = positions[i * 3];
                 let y = positions[i * 3 + 1];
                 let z = positions[i * 3 + 2];

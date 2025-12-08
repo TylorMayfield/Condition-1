@@ -50,13 +50,6 @@ export class WeatherEffects {
         });
 
         this.mesh = new THREE.Points(this.geometry, this.material);
-
-        // Attach to camera so it moves with it (HUD-like)
-        // Adjust z to be just in front of near plane
-        this.mesh.position.set(0, 0, -0.5);
-        this.mesh.frustumCulled = false; // Always render
-
-        this.game.camera.add(this.mesh);
     }
 
     private createParticleTexture(): THREE.Texture {
@@ -79,20 +72,26 @@ export class WeatherEffects {
     public update(dt: number) {
         const weather = this.game.weatherManager.currentWeather;
 
-        // Spawn
-        if (weather !== WeatherType.Clear) {
-            this.spawnTimer += dt;
-            const spawnRate = weather === WeatherType.Rain ? 0.05 : 0.1; // Rain faster, Snow pile up?
+        // Aggressively remove ALL snow particles - they should never exist
+        // Remove them first, before any other processing
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            if (this.particles[i].type === 'snow') {
+                this.particles.splice(i, 1);
+            }
+        }
 
-            // Spawn multiple per frame if needed?
-            // Simple approach: spawn 1-5 based on intensity
+        // Only spawn rain particles - never snow
+        if (weather === WeatherType.Rain) {
+            this.spawnTimer += dt;
+            const spawnRate = 0.05; // Rain spawn rate
+
             if (this.spawnTimer > spawnRate) {
                 this.spawnTimer = 0;
-                // Only spawn rain on lens, snow looks bad sticking
-                if (weather === WeatherType.Rain) {
-                    this.spawnParticle('rain');
-                }
+                this.spawnParticle('rain');
             }
+        } else {
+            // For any other weather (including Snow), don't spawn anything
+            this.spawnTimer = 0;
         }
 
         // Update Particles
@@ -106,26 +105,29 @@ export class WeatherEffects {
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
 
+            // Double-check: remove any snow particles that somehow still exist
+            if (p.type === 'snow') {
+                this.particles.splice(i, 1);
+                continue;
+            }
+
             p.life -= dt;
             if (p.life <= 0) {
                 this.particles.splice(i, 1);
                 continue;
             }
 
-            // Logic
+            // Only process rain particles
             if (p.type === 'rain') {
                 p.y -= p.velocity * dt; // Slide down
-            } else {
-                // Snow sticks more, maybe slides very slowly
-                p.y -= (p.velocity * 0.1) * dt;
+
+                // Update Buffer
+                positions[activeCount * 3] = p.x;
+                positions[activeCount * 3 + 1] = p.y;
+                positions[activeCount * 3 + 2] = 0; // Local Z relative to container (which is at -0.5)
+
+                activeCount++;
             }
-
-            // Update Buffer
-            positions[i * 3] = p.x;
-            positions[i * 3 + 1] = p.y;
-            positions[i * 3 + 2] = 0; // Local Z relative to container (which is at -0.5)
-
-            activeCount++;
         }
 
         // Hide unused particles

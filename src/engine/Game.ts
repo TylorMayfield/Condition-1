@@ -42,6 +42,7 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(this.renderer.domElement);
 
         // Init Scene
@@ -82,26 +83,38 @@ export class Game {
     }
 
     private setupLighting() {
-        // Sky Color (Hemisphere)
+        // Sky Color (Hemisphere) - provides ambient lighting from sky and ground
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         hemiLight.position.set(0, 20, 0);
         this.scene.add(hemiLight);
 
-        // Sun (Directional)
+        // Sun (Directional) - main light source
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(-3, 10, -10);
         dirLight.castShadow = true;
 
-        // Shadow High Res
+        // Shadow configuration - High Res
         dirLight.shadow.mapSize.width = 2048;
         dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.type = THREE.PCFSoftShadowMap; // Soft shadows
+        
+        // Shadow camera bounds
         const d = 20;
         dirLight.shadow.camera.left = -d;
         dirLight.shadow.camera.right = d;
         dirLight.shadow.camera.top = d;
         dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 100;
+        
+        // Shadow bias to prevent shadow acne
+        dirLight.shadow.bias = -0.0001;
+        dirLight.shadow.normalBias = 0.02;
 
         this.scene.add(dirLight);
+        
+        // Store reference for SkyboxManager
+        (this as any).mainDirectionalLight = dirLight;
 
         // Basic Scene Background
         this.scene.background = new THREE.Color(0x87CEEB); // Sky Blue

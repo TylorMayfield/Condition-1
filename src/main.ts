@@ -6,14 +6,7 @@ console.log('Condition-1 POC Starting...');
 const game = new Game();
 (window as any).game = game; // Expose for debugging
 
-// Simple ambient light
-import * as THREE from 'three';
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-game.scene.add(ambientLight);
-
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-directionalLight.position.set(10, 10, 10);
-game.scene.add(directionalLight);
+// Lighting is handled in Game.setupLighting() - no need for duplicate lights here
 
 import { Player } from './game/Player';
 import { LevelGenerator } from './game/LevelGenerator';

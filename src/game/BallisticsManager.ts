@@ -79,7 +79,7 @@ export class BallisticsManager {
                     // Ignore Owner
                     while (obj) {
                         if (obj === p.owner) return false;
-                        if (p.owner.children && p.owner.children.includes(obj)) return false; // Check children if group
+                        if (p.owner && p.owner.children && Array.isArray(p.owner.children) && p.owner.children.includes(obj)) return false; // Check children if group
                         obj = obj.parent as THREE.Object3D;
                     }
                     return true;
@@ -111,7 +111,12 @@ export class BallisticsManager {
         while (obj) {
             // Check for any GameObject with 'takeDamage'
             // We use 'any' cast to check for method presence dynamically to avoid circular dep issues with 'instanceof Enemy'
-            const foundGO = this.game.getGameObjects().find(go => go.mesh === obj || (go.mesh as THREE.Group).children?.includes(obj as any));
+            const foundGO = this.game.getGameObjects().find(go => {
+                if (!go.mesh) return false;
+                if (go.mesh === obj) return true;
+                if (go.mesh instanceof THREE.Group && go.mesh.children?.includes(obj as any)) return true;
+                return false;
+            });
 
             if (foundGO) {
                 // Check if it's an enemy/damageable

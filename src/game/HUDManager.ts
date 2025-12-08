@@ -83,7 +83,30 @@ export class HUDManager {
         div.style.width = '100%';
         div.style.height = '100%';
         div.style.pointerEvents = 'none';
-        div.style.background = 'radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.9) 100%)';
+        
+        // Goggle vignette with nose bump using CSS mask
+        // Create SVG mask data URI for vignette with nose bump cutout
+        const svgMask = `data:image/svg+xml,${encodeURIComponent(`
+            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                <defs>
+                    <radialGradient id="vignette" cx="50%" cy="50%">
+                        <stop offset="60%" stop-color="white" stop-opacity="0"/>
+                        <stop offset="100%" stop-color="white" stop-opacity="1"/>
+                    </radialGradient>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#vignette)"/>
+                <!-- Nose bump cutout - lighter area at bottom center -->
+                <ellipse cx="50%" cy="100%" rx="15%" ry="8%" fill="white" opacity="0.2"/>
+            </svg>
+        `)}`;
+        
+        // Much lighter vignette - was 0.9 (90% black), now 0.3 (30% black) for subtle effect
+        div.style.background = 'rgba(0,0,0,0.3)';
+        div.style.maskImage = svgMask;
+        div.style.webkitMaskImage = svgMask;
+        div.style.maskSize = '100% 100%';
+        div.style.webkitMaskSize = '100% 100%';
+        
         // Prepend to be behind other elements
         if (this.container.firstChild) {
             this.container.insertBefore(div, this.container.firstChild);
