@@ -49,12 +49,13 @@ export class WeatherManager {
             opacity: 0.8
         });
 
-        // Snow
+        // Snow - use completely random heights across a large range to prevent synchronized falling
         this.snowGeo = new THREE.BufferGeometry();
         const snowPos = [];
         for (let i = 0; i < this.particleCount; i++) {
             snowPos.push((Math.random() - 0.5) * 40);
-            snowPos.push(Math.random() * 20);
+            // Completely random heights from 0 to 60 to ensure particles are never synchronized
+            snowPos.push(Math.random() * 60);
             snowPos.push((Math.random() - 0.5) * 40);
         }
         this.snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowPos, 3));
@@ -79,9 +80,10 @@ export class WeatherManager {
             this.systems.push(sys);
             this.wind.set(0.1, 0, 0.1); // Light wind
         } else if (type === WeatherType.Snow) {
-
+            const sys = new THREE.Points(this.snowGeo, this.snowMat);
+            this.game.scene.add(sys);
+            this.systems.push(sys);
             this.wind.set(-0.5, 0, 0); // Stronger wind
-
         } else {
             this.wind.set(0, 0, 0);
         }
@@ -89,18 +91,12 @@ export class WeatherManager {
 
     public update(dt: number) {
         if (this.currentWeather === WeatherType.Clear) return;
-        
-        // Skip all processing if weather is Snow - snow particles are completely disabled
-        if (this.currentWeather === WeatherType.Snow) {
-            // Only update wind, no particle processing
-    
-            return;
-        }
 
-        // Only process rain particles
+        // Process both rain and snow particles
         this.systems.forEach(sys => {
             const positions = sys.geometry.attributes.position.array as Float32Array;
-            const velocity = this.rainVelocity; // Only rain now
+            // Use appropriate velocity based on which geometry this is
+            const velocity = sys.geometry === this.snowGeo ? this.snowVelocity : this.rainVelocity;
 
             // Move with camera
             sys.position.x = this.game.camera.position.x;
@@ -116,8 +112,18 @@ export class WeatherManager {
                 y += (velocity.y + this.wind.y) * dt;
                 z += (velocity.z + this.wind.z) * dt;
 
-                // Wrap around
-                if (y < 0) y = 20;
+                // Wrap around - use larger range for snow (60) vs rain (20)
+                // For snow, reset to random height to prevent synchronized "wall" effect
+                const maxY = sys.geometry === this.snowGeo ? 60 : 20;
+                if (y < 0) {
+                    // Reset snow particles to random heights to prevent wall effect
+                    y = sys.geometry === this.snowGeo ? Math.random() * 60 : maxY;
+                    // Also randomize X and Z slightly when wrapping to break up patterns
+                    if (sys.geometry === this.snowGeo) {
+                        x = (Math.random() - 0.5) * 40;
+                        z = (Math.random() - 0.5) * 40;
+                    }
+                }
                 if (x < -20) x = 20;
                 if (x > 20) x = -20;
                 if (z < -20) z = 20;

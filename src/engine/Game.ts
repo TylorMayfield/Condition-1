@@ -163,13 +163,16 @@ export class Game {
         this.isPaused = !this.isPaused;
 
         const menu = document.getElementById('pause-menu');
+        const mapPicker = document.getElementById('map-picker-menu');
 
         if (this.isPaused) {
             this.input.unlockCursor();
             if (menu) menu.style.display = 'flex';
+            if (mapPicker) mapPicker.style.display = 'none'; // Hide map picker if open
         } else {
             this.input.lockCursor();
             if (menu) menu.style.display = 'none';
+            if (mapPicker) mapPicker.style.display = 'none'; // Hide map picker
         }
 
         // Cooldown hack

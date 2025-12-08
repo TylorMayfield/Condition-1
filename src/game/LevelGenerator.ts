@@ -4,12 +4,86 @@ import { Game } from '../engine/Game';
 import { GameObject } from '../engine/GameObject';
 import { Enemy } from './Enemy';
 import { DestructibleWall } from './components/DestructibleWall';
+import { TileMap } from './maps/TileMap';
+import type { TileMapDefinition } from './maps/TileMap';
+import { MapRenderer } from './maps/MapRenderer';
+import { SquadMember } from './SquadMember';
 
 export class LevelGenerator {
     private game: Game;
 
     constructor(game: Game) {
         this.game = game;
+    }
+
+    public async loadMap(mapName: string): Promise<void> {
+        try {
+            // Load map JSON file using dynamic import (Vite handles this)
+            const mapModule = await import(`./maps/${mapName}.json`);
+            const mapData: TileMapDefinition = mapModule.default || mapModule;
+            
+            // Create tile map and renderer
+            const tileMap = new TileMap(this.game, mapData);
+            const renderer = new MapRenderer(this.game, tileMap);
+            
+            // Render the map
+            renderer.render();
+            
+            // Spawn entities at spawn points
+            this.spawnFromTileMap(tileMap);
+        } catch (error) {
+            console.error(`Failed to load map ${mapName}:`, error);
+            // Fallback to random generation
+            this.generate();
+        }
+    }
+
+    private spawnFromTileMap(tileMap: TileMap) {
+        const spawnPoints = tileMap.getSpawnPoints();
+        if (spawnPoints.length === 0) return;
+
+        const squadSpawns: THREE.Vector3[] = [];
+
+        for (const spawn of spawnPoints) {
+            switch (spawn.type) {
+                case 'player':
+                    if (this.game.player && this.game.player.body) {
+                        // Player body is a sphere with radius 0.5
+                        // Spawn position includes body offset (0.8), but player sphere should be at floor + 0.5
+                        // So adjust: floor + 0.8 - 0.3 = floor + 0.5
+                        const playerY = spawn.position.y - 0.3;
+                        this.game.player.body.position.set(
+                            spawn.position.x, 
+                            Math.max(0.5, playerY), // Ensure minimum height so player doesn't fall through
+                            spawn.position.z
+                        );
+                    }
+                    break;
+                case 'squad':
+                    squadSpawns.push(spawn.position);
+                    break;
+                case 'enemy':
+                    const enemy = new Enemy(this.game, spawn.position);
+                    this.game.addGameObject(enemy);
+                    break;
+            }
+        }
+
+        // Spawn squad members at their spawn points
+        if (squadSpawns.length > 0 && this.game.squadManager) {
+            // Clear existing squad members
+            this.game.squadManager.members.forEach(member => {
+                member.dispose();
+            });
+            this.game.squadManager.members = [];
+
+            // Spawn new squad members
+            squadSpawns.forEach((pos, index) => {
+                const member = new SquadMember(this.game, pos, `Squad-${index + 1}`);
+                this.game.addGameObject(member);
+                this.game.squadManager.members.push(member);
+            });
+        }
     }
 
     public generate(playerTarget?: GameObject) {
