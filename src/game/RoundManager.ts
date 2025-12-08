@@ -33,6 +33,16 @@ export class RoundManager {
         if (this.enemiesAlive < 0) this.enemiesAlive = 0; // Safety
     }
 
+    public triggerExtractionSuccess() {
+        if (!this.game.isRunning) return;
+
+        console.log("Extraction Successful!");
+        alert("Mission Complete! You extracted safely.");
+
+        // Restart or Menu? For now, reload.
+        location.reload();
+    }
+
     public update(dt: number) {
         // Round Start Logic
         if (this.enemiesAlive === 0 && this.enemiesToSpawn === 0) {

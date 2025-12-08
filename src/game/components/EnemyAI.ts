@@ -153,6 +153,12 @@ export class EnemyAI {
     }
 
     private attackBehavior(playerPos: CANNON.Vec3) {
+        // Convert to Vector3 for weapon
+        const target = new THREE.Vector3(playerPos.x, playerPos.y, playerPos.z);
+
+        // Aim and Fire
+        this.owner.weapon.pullTrigger(target);
+
         if (this.personality !== AIPersonality.Rusher) {
             this.movement.stop();
         } else {

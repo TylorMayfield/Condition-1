@@ -7,6 +7,12 @@ import { SoundManager } from './SoundManager';
 import { Player } from '../game/Player'; // Import Player type
 import { RoundManager } from '../game/RoundManager';
 import { WeatherManager } from '../game/WeatherManager';
+import { WeatherEffects } from '../game/WeatherEffects';
+import { BallisticsManager } from '../game/BallisticsManager';
+import { ExtractionZone } from '../game/ExtractionZone';
+import { HUDManager } from '../game/HUDManager';
+import { SquadManager } from '../game/SquadManager';
+import { SkyboxManager } from '../game/SkyboxManager';
 
 export class Game {
     public renderer: THREE.WebGLRenderer;
@@ -14,7 +20,7 @@ export class Game {
     public camera: THREE.PerspectiveCamera;
     public world: CANNON.World;
     public time: Time;
-    private isRunning: boolean = false;
+    public isRunning: boolean = false;
 
     public input: Input;
     public soundManager: SoundManager;
@@ -23,6 +29,12 @@ export class Game {
     public isPaused: boolean = false;
     public roundManager: RoundManager;
     public weatherManager: WeatherManager;
+    public weatherEffects: WeatherEffects;
+    public ballisticsManager: BallisticsManager;
+    public extractionZone!: ExtractionZone;
+    public hudManager: HUDManager;
+    public squadManager: SquadManager;
+    public skyboxManager: SkyboxManager;
 
     constructor() {
         // Init Renderer
@@ -38,6 +50,7 @@ export class Game {
         // Init Camera
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
         this.camera.position.set(0, 2, 5);
+        this.scene.add(this.camera);
 
         // Env Lighting
         this.setupLighting();
@@ -52,6 +65,17 @@ export class Game {
         this.soundManager = new SoundManager();
         this.roundManager = new RoundManager(this);
         this.weatherManager = new WeatherManager(this);
+        this.weatherEffects = new WeatherEffects(this);
+        this.ballisticsManager = new BallisticsManager(this);
+
+        // Spawn Extraction Zone (Fixed pos for test, or random)
+        this.extractionZone = new ExtractionZone(this, new THREE.Vector3(40, 0, 40));
+
+        this.hudManager = new HUDManager(this);
+        this.squadManager = new SquadManager(this);
+        this.squadManager.init();
+
+        this.skyboxManager = new SkyboxManager(this);
 
         // Resize Listener
         window.addEventListener('resize', () => this.onResize());
@@ -149,22 +173,14 @@ export class Game {
         // Pause Toggle
         if (this.input.getKey('Enter')) {
             this.togglePause();
-            // Small debounce hack or rely on keyUp for toggle.
-            // Input.ts usually sets true on down. We need single frame trigger.
-            // For now, let's assume sloppy continuous toggle isn't desired -> wait, Input.ts is raw state.
-            // We need a proper OnPress. For now I'll just check if it wasn't pressed last frame? 
-            // Input class doesn't store previous frame. 
-            // Let's add simple debounce here or use a 'justPressed' logic.
         }
 
         if (this.isPaused) {
-            // Render but don't update physics/game logic
             this.render();
             return;
         }
 
         this.time.update();
-
         this.update(this.time.deltaTime);
         this.render();
 
@@ -185,6 +201,23 @@ export class Game {
 
         // Update Weather
         this.weatherManager?.update(dt);
+        this.weatherEffects?.update(dt);
+
+        // Update Ballistics
+        this.ballisticsManager?.update(dt);
+
+        // Update Extraction
+        this.extractionZone?.update(dt);
+
+        // Update HUD
+        this.hudManager?.update(dt);
+
+        // Squad Orders Input (Temp)
+        if (this.input.getKey('Digit1')) this.squadManager.issueOrder(0); // Follow
+        if (this.input.keys.get('Digit2') || this.input.getKey('Digit2')) this.squadManager.issueOrder(1); // Hold
+        if (this.input.getKey('Digit3')) this.squadManager.issueOrder(2); // Attack
+
+        this.skyboxManager?.update(dt);
     }
 
     private render() {

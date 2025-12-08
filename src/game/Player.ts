@@ -40,6 +40,10 @@ export class Player extends GameObject {
         this.updateHUD();
     }
 
+    public getCurrentWeapon() {
+        return this.weapon;
+    }
+
     private updateHUD() {
         const healthEl = document.getElementById('health');
         const ammoEl = document.getElementById('ammo');

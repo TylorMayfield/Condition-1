@@ -1,5 +1,5 @@
 export class Input {
-    private keys: Map<string, boolean> = new Map();
+    public keys: Map<string, boolean> = new Map();
     private mouseButtons: Map<number, boolean> = new Map();
     public mouseDelta: { x: number, y: number } = { x: 0, y: 0 };
     public isPointerLocked: boolean = false;

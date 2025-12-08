@@ -3,10 +3,13 @@ import * as THREE from 'three';
 import { Game } from '../engine/Game';
 import { GameObject } from '../engine/GameObject';
 import { EnemyAI, AIPersonality } from './components/EnemyAI';
+import { EnemyWeapon } from './components/EnemyWeapon';
 
 export class Enemy extends GameObject {
     public health: number = 100;
     private ai: EnemyAI;
+    public weapon: EnemyWeapon;
+    private rightArm: THREE.Mesh;
 
     constructor(game: Game, position: THREE.Vector3) {
         super(game);
@@ -39,10 +42,10 @@ export class Enemy extends GameObject {
         leftArm.castShadow = true;
         this.mesh.add(leftArm);
 
-        const rightArm = new THREE.Mesh(armGeo, mat);
-        rightArm.position.set(0.5, 0.1, 0);
-        rightArm.castShadow = true;
-        this.mesh.add(rightArm);
+        this.rightArm = new THREE.Mesh(armGeo, mat);
+        this.rightArm.position.set(0.5, 0.1, 0);
+        this.rightArm.castShadow = true;
+        this.mesh.add(this.rightArm);
 
         this.game.scene.add(this.mesh);
 
@@ -61,6 +64,12 @@ export class Enemy extends GameObject {
         // AI
         const p = Math.floor(Math.random() * 3) as AIPersonality;
         this.ai = new EnemyAI(game, this, p);
+
+        // Weapon
+        this.weapon = new EnemyWeapon(game, this);
+        // Attach to Right Arm
+        this.weapon.mesh.position.set(0, -0.4, 0.2); // Hold in hand
+        this.rightArm.add(this.weapon.mesh);
 
         // Color based on personality
         if (p === AIPersonality.Rusher) mat.color.setHex(0xff0000);
@@ -100,5 +109,6 @@ export class Enemy extends GameObject {
     public update(dt: number) {
         super.update(dt);
         this.ai.update(dt);
+        this.weapon.update(dt);
     }
 }
