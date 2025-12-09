@@ -122,7 +122,7 @@ export class WeatherEffects {
 
         this.particles.push({
             x: (Math.random() - 0.5) * rangeX,
-            y: (Math.random() - 0.5) * rangeY + 0.2, // Spawn higher up
+            y: (Math.random() - 0.5) * 10.0 + 5.0, // Spawn higher (0 to 10 range relative to root?)
             life: type === 'rain' ? 0.5 + Math.random() * 0.5 : 3.0 + Math.random() * 2.0,
             maxLife: 2.0,
             size: type === 'rain' ? 0.05 : 0.08,

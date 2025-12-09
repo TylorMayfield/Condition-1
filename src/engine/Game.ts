@@ -59,7 +59,7 @@ export class Game {
         this.scene = new THREE.Scene();
 
         // Init Camera
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 4000);
         this.camera.position.set(0, 2, 5);
         this.scene.add(this.camera);
 
@@ -69,6 +69,9 @@ export class Game {
         // Init Physics
         this.world = new CANNON.World();
         this.world.gravity.set(0, -9.82, 0);
+        // Zero friction default (PlayerController handles movement)
+        this.world.defaultContactMaterial.friction = 0;
+        this.world.defaultContactMaterial.restitution = 0;
 
         // Init Time & Input
         this.time = new Time();

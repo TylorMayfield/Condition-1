@@ -39,11 +39,11 @@ export class SkyboxManager {
     }
 
     private initSky() {
-        // Simple Gradient Sky Sphere
-        const geo = new THREE.SphereGeometry(90, 32, 32);
+        // Gradient Sky Sphere
+        const geo = new THREE.SphereGeometry(2000, 32, 32);
         const mat = new THREE.ShaderMaterial({
             uniforms: {
-                topColor: { value: new THREE.Color(0x4da6ff) }, // Brighter blue
+                topColor: { value: new THREE.Color(0x4da6ff) },
                 bottomColor: { value: new THREE.Color(0xffffff) },
                 offset: { value: 33 },
                 exponent: { value: 0.6 }
@@ -63,17 +63,17 @@ export class SkyboxManager {
                 uniform float exponent;
                 varying vec3 vWorldPosition;
                 void main() {
-                    float h = normalize( vWorldPosition + offset ).y;
+                    float h = normalize( vWorldPosition + vec3(0, offset, 0) ).y;
                     gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
                 }
             `,
             side: THREE.BackSide,
-            // Ensure skybox doesn't participate in lighting calculations
-            lights: false,
+            depthWrite: false,
             fog: false
         });
 
         this.skyMesh = new THREE.Mesh(geo, mat);
+        this.skyMesh.renderOrder = -999; // Force render first
         // Ensure skybox doesn't interfere with lighting
         this.skyMesh.castShadow = false;
         this.skyMesh.receiveShadow = false;
@@ -83,7 +83,7 @@ export class SkyboxManager {
 
     private initClouds() {
         // Create a few simple cloud meshes
-        const cloudCount = 8;
+        const cloudCount = 30;
         for (let i = 0; i < cloudCount; i++) {
             // Random position in sky
             const x = (Math.random() - 0.5) * 100;

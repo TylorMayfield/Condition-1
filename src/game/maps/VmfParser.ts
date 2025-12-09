@@ -13,6 +13,7 @@ export interface VmfSide {
     material: string;
     uaxis: string;
     vaxis: string;
+    dispinfo?: boolean; // True if this side has displacement info
 }
 
 export interface VmfEntity {
@@ -155,7 +156,8 @@ export class VmfParser {
                     planePoints: points,
                     material: side.material,
                     uaxis: side.uaxis,
-                    vaxis: side.vaxis
+                    vaxis: side.vaxis,
+                    dispinfo: !!side.dispinfo // Check if dispinfo block exists
                 };
             });
 

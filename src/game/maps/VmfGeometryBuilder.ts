@@ -11,7 +11,27 @@ export class VmfGeometryBuilder {
      * Build geometry for a single convex solid.
      * Uses plane intersection method to find all valid vertices.
      */
-    public static buildSolidGeometry(solid: VmfSolid): THREE.BufferGeometry {
+    // Default materials to ignore (filtered visually)
+    public static DEFAULT_IGNORED_MATERIALS = [
+        'TOOLS/TOOLSNODRAW',
+        'TOOLS/TOOLSSKYBOX',
+        'TOOLS/TOOLSCLIP',
+        'TOOLS/TOOLSTRIGGER',
+        'TOOLS/TOOLSSKIP',
+        'TOOLS/TOOLSHINT',
+        'TOOLS/TOOLSORIGIN',
+        'TOOLS/TOOLSAREAPORTAL',
+        'TOOLS/TOOLSFOG',
+        'TOOLS/TOOLSLIGHT'
+    ];
+
+    /**
+     * Build geometry for a single convex solid.
+     * Uses plane intersection method to find all valid vertices.
+     * @param filterMaterials If true, excludes faces with ignored materials.
+     * @param ignoredMaterials List of material names (substring) to ignore. Defaults to standard tools.
+     */
+    public static buildSolidGeometry(solid: VmfSolid, filterMaterials: boolean = true, ignoredMaterials: string[] = VmfGeometryBuilder.DEFAULT_IGNORED_MATERIALS): THREE.BufferGeometry {
         const vertices: THREE.Vector3[] = [];
         const sides = solid.sides;
 
@@ -52,6 +72,12 @@ export class VmfGeometryBuilder {
         const finalUVs: number[] = [];
 
         for (const side of sides) {
+            // Check if material should be skipped
+            // ALWAYS allow sides with displacement info (render base face)
+            if (filterMaterials && !side.dispinfo && side.material && ignoredMaterials.some(m => side.material.toUpperCase().includes(m))) {
+                continue;
+            }
+
             // Find vertices on this plane
             const onPlane = uniqueVertices.filter(v =>
                 Math.abs(side.plane.distanceToPoint(v)) < 0.1
@@ -92,14 +118,8 @@ export class VmfGeometryBuilder {
         // Rotation: Rotate -90 deg around X axis.
         geometry.rotateX(-Math.PI / 2);
 
-        // Also Scale (Source units are inches generally, 1 unit approx 0.75 inches or 1.9cm)
-        // Character is ~72 units tall? In standard HL2.
-        // Let's assume some global scale factor. VMF scale 1unit ~ 1inch. 
-        // 1 unit = 0.0254 meters. 
-        // 72 units = 1.8m (Player height).
-        // So scale factor 0.0254 ~ 0.02 or just divide by ~40.
-        // Let's use 0.03 for now to match rough sizing.
-        geometry.scale(0.03, 0.03, 0.03);
+        // Scaling logic moved to LevelGenerator to allow for global config
+        // Default returns unscaled (Raw VMF Units, rotated)
 
         return geometry;
     }

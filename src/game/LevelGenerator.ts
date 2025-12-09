@@ -16,6 +16,7 @@ import { BrushMapParser } from './maps/BrushMapParser';
 import { BrushMapRenderer } from './maps/BrushMapRenderer';
 import { VmfParser } from './maps/VmfParser';
 import { VmfGeometryBuilder } from './maps/VmfGeometryBuilder';
+import { VmfWorldBuilder } from './maps/VmfWorldBuilder';
 
 export class LevelGenerator {
     private game: Game;
@@ -115,83 +116,212 @@ export class LevelGenerator {
             // Parse the VMF
             const mapData = VmfParser.parse(content);
             // Render Solids (World)
-            // Add basic lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-            this.game.scene.add(ambientLight);
+            // Add Atmospheric Lighting
+            // Replace AmbientLight with HemisphereLight for better depth
+            const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0xE6CFA1, 0.8); // Sky Blue / Sand
+            this.game.scene.add(hemiLight);
 
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
             sunLight.position.set(50, 100, 50);
             sunLight.castShadow = true;
             this.game.scene.add(sunLight);
+
+            // Add Distance Fog (Sand color) to blend skybox
+            const fogColor = new THREE.Color(0xE6CFA1);
+            this.game.scene.fog = new THREE.FogExp2(fogColor, 0.002);
+            this.game.scene.background = fogColor; // Match background to fog
 
             // Init default skybox (reset to ensure it's visible)
             this.game.skyboxManager.reset();
 
             console.log(`Loaded VMF Map: ${fileName} v${mapData.version}`);
-            const material = new THREE.MeshStandardMaterial({
-                color: 0x888888,
-                roughness: 0.8,
-                map: this.createDevTexture(),
-                side: THREE.DoubleSide
-            });
+            // Material creation moved to VmfWorldBuilder
 
-            if (mapData.world && mapData.world.solids) {
+            // Delegate world building (Visuals & Physics) to Builder
+            const builder = new VmfWorldBuilder(this.game.scene, this.game.world);
+            builder.build(mapData);
+
+            // 1. World Solids (Handled by VmfWorldBuilder)
+            if (false && mapData.world && mapData.world.solids) {
                 console.log(`Processing ${mapData.world.solids.length} world solids.`);
                 for (const solid of mapData.world.solids) {
-                    const geometry = VmfGeometryBuilder.buildSolidGeometry(solid);
-                    if (geometry.attributes.position && geometry.attributes.position.count > 0) {
-                        console.log(`Solid generated with ${geometry.attributes.position.count} vertices.`);
-                        const mesh = new THREE.Mesh(geometry, material);
+                    // Check for displacement
+                    const hasDisp = solid.sides.some(s => s.dispinfo);
+
+                    // 1. Physics (Filtered: Keep Clip/Nodraw but ignore Skip/Hint)
+                    // We WANT invisible walls to be solid, but we don't want optimization brushes to be solid.
+                    const PHYSICS_IGNORED = [
+                        'TOOLS/TOOLSTRIGGER',
+                        'TOOLS/TOOLSSKIP',
+                        'TOOLS/TOOLSHINT',
+                        'TOOLS/TOOLSORIGIN', // Origin brushes are just points
+                        'TOOLS/TOOLSFOG',
+                        'TOOLS/TOOLSLIGHT',
+                        'TOOLS/TOOLSAREAPORTAL', // Open portals shouldn't block, usually.
+                        'TOOLS/TOOLSOCCLUDER'
+                    ];
+
+                    const physicsGeo = VmfGeometryBuilder.buildSolidGeometry(solid, true, PHYSICS_IGNORED);
+                    if (physicsGeo.attributes.position && physicsGeo.attributes.position.count > 0) {
+                        // Apply Scale
+                        physicsGeo.scale(0.02, 0.02, 0.02);
+
+                        // Create ConvexPolyhedron for accurate physics (Slopes/Rotated walls)
+                        // Physics Geo is already scaled
+
+                        // Convert THREE latice to CANNON points/faces
+                        const geo = physicsGeo;
+                        const posAttr = geo.attributes.position;
+                        const points: CANNON.Vec3[] = [];
+                        const faces: number[][] = [];
+
+                        // We need to merge vertices to create a valid hull for Cannon
+                        // Since buffer geometry has duplicated vertices for flat shading (triangle soup),
+                        // we need to find unique vertices and rebuild faces.
+
+                        // Simple approach: Use vertices as is? No, Cannon needs shared vertices for faces.
+                        // Better approach: Use a map to find unique vertices.
+                        const vertsMap = new Map<string, number>();
+
+                        for (let i = 0; i < posAttr.count; i++) {
+                            const x = posAttr.getX(i);
+                            const y = posAttr.getY(i);
+                            const z = posAttr.getZ(i);
+                            const key = `${x.toFixed(4)}_${y.toFixed(4)}_${z.toFixed(4)}`;
+
+                            if (!vertsMap.has(key)) {
+                                vertsMap.set(key, points.length);
+                                points.push(new CANNON.Vec3(x, y, z));
+                            }
+                        }
+
+                        // Reconstruct faces (Triangles)
+                        // BufferGeometry is a list of triangles.
+                        for (let i = 0; i < posAttr.count; i += 3) {
+                            const a = vertsMap.get(`${posAttr.getX(i).toFixed(4)}_${posAttr.getY(i).toFixed(4)}_${posAttr.getZ(i).toFixed(4)}`)!;
+                            const b = vertsMap.get(`${posAttr.getX(i + 1).toFixed(4)}_${posAttr.getY(i + 1).toFixed(4)}_${posAttr.getZ(i + 1).toFixed(4)}`)!;
+                            const c = vertsMap.get(`${posAttr.getX(i + 2).toFixed(4)}_${posAttr.getY(i + 2).toFixed(4)}_${posAttr.getZ(i + 2).toFixed(4)}`)!;
+                            faces.push([a, b, c]);
+                        }
+
+                        if (points.length > 3) {
+                            const shape = new CANNON.ConvexPolyhedron({ vertices: points, faces: faces });
+                            const body = new CANNON.Body({
+                                mass: 0, // static
+                                shape: shape
+                            });
+                            // ConvexPolyhedron is centered at local 0,0,0 relative to vertices?
+                            // No, vertices are world space (from VmfGeometryBuilder).
+                            // A Body position 0 with World Space vertices works.
+                            body.position.set(0, 0, 0);
+                            this.game.world.addBody(body);
+                        } else if (hasDisp) {
+                            console.warn("Skipping physics for displacement solid.");
+                        }
+                    } else if (hasDisp) {
+                        console.warn("Displacement solid produced no physics vertices.");
+                    }
+
+                    // 2. Visuals (Filtered)
+                    const VISUAL_IGNORED = [
+                        'TOOLS/TOOLSCLIP',
+                        'TOOLS/TOOLSTRIGGER',
+                        'TOOLS/TOOLSSKIP',
+                        'TOOLS/TOOLSHINT',
+                        'TOOLS/TOOLSORIGIN',
+                        'TOOLS/TOOLSFOG',
+                        'TOOLS/TOOLSLIGHT',
+                        'TOOLS/TOOLSAREAPORTAL',
+                        'TOOLS/TOOLSOCCLUDER',
+                        'TOOLS/TOOLSNODRAW',
+                        'TOOLS/TOOLSSKYBOX'
+                    ];
+
+                    const visualGeo = VmfGeometryBuilder.buildSolidGeometry(solid, true, VISUAL_IGNORED);
+                    if (visualGeo.attributes.position && visualGeo.attributes.position.count > 0) {
+                        visualGeo.scale(0.02, 0.02, 0.02);
+                        const mesh = new THREE.Mesh(visualGeo, material);
                         mesh.castShadow = true;
                         mesh.receiveShadow = true;
                         this.game.scene.add(mesh);
-
-                        // Physics (simplified box for now)
-                        geometry.computeBoundingBox();
-                        const box = geometry.boundingBox!;
-                        const size = new THREE.Vector3();
-                        box.getSize(size);
-                        const center = new THREE.Vector3();
-                        box.getCenter(center);
-
-                        const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
-                        const body = new CANNON.Body({
-                            mass: 0, // static
-                            position: new CANNON.Vec3(center.x, center.y, center.z)
-                        });
-                        body.addShape(shape);
-                        this.game.world.addBody(body);
                     }
                 }
             }
 
             // Render Entities
+            // 2. Entities (Handled by VmfWorldBuilder)
+            // 2. Entities (Logic)
             for (const entity of mapData.entities) {
+                this.spawnVmfEntity(entity);
+            }
+
+            // Legacy Physics (Disabled)
+            if (false) { // was entity loop
                 // Func_detail (Solids)
                 if (entity.solids && entity.solids.length > 0) {
+                    // Filter non-solid entities
+                    const isIllusionary = entity.classname === 'func_illusionary';
+                    const isNonSolidBrush = entity.classname === 'func_brush' && entity.properties['solidity'] === '1'; // 1 = Never Solid
+                    const shouldCreatePhysics = !isIllusionary && !isNonSolidBrush;
+
                     for (const solid of entity.solids) {
-                        const geometry = VmfGeometryBuilder.buildSolidGeometry(solid);
-                        if (geometry.attributes.position && geometry.attributes.position.count > 0) {
-                            const mesh = new THREE.Mesh(geometry, material);
+                        // 1. Physics
+                        const PHYSICS_IGNORED = [
+                            'TOOLS/TOOLSTRIGGER',
+                            'TOOLS/TOOLSSKIP',
+                            'TOOLS/TOOLSHINT',
+                            'TOOLS/TOOLSORIGIN',
+                            'TOOLS/TOOLSFOG',
+                            'TOOLS/TOOLSLIGHT',
+                            'TOOLS/TOOLSAREAPORTAL',
+                            'TOOLS/TOOLSOCCLUDER'
+                        ];
+
+                        if (shouldCreatePhysics) {
+                            const physicsGeo = VmfGeometryBuilder.buildSolidGeometry(solid, true, PHYSICS_IGNORED);
+                            if (physicsGeo.attributes.position && physicsGeo.attributes.position.count > 0) {
+                                physicsGeo.scale(0.02, 0.02, 0.02);
+                                physicsGeo.computeBoundingBox();
+                                const box = physicsGeo.boundingBox!;
+                                const size = new THREE.Vector3();
+                                box.getSize(size);
+                                const center = new THREE.Vector3();
+                                box.getCenter(center);
+
+                                if (size.x > 0.01 && size.y > 0.01 && size.z > 0.01) {
+                                    const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
+                                    const body = new CANNON.Body({
+                                        mass: 0,
+                                        position: new CANNON.Vec3(center.x, center.y, center.z), // Center is already scaled
+                                        shape: shape
+                                    });
+                                    this.game.world.addBody(body);
+                                }
+                            }
+                        }
+
+                        // 2. Visuals (Filtered)
+                        const VISUAL_IGNORED = [
+                            'TOOLS/TOOLSCLIP',
+                            'TOOLS/TOOLSTRIGGER',
+                            'TOOLS/TOOLSSKIP',
+                            'TOOLS/TOOLSHINT',
+                            'TOOLS/TOOLSORIGIN',
+                            'TOOLS/TOOLSFOG',
+                            'TOOLS/TOOLSLIGHT',
+                            'TOOLS/TOOLSAREAPORTAL',
+                            'TOOLS/TOOLSOCCLUDER',
+                            'TOOLS/TOOLSNODRAW',
+                            'TOOLS/TOOLSSKYBOX'
+                        ];
+
+                        const visualGeo = VmfGeometryBuilder.buildSolidGeometry(solid, true, VISUAL_IGNORED);
+                        if (visualGeo.attributes.position && visualGeo.attributes.position.count > 0) {
+                            visualGeo.scale(0.02, 0.02, 0.02);
+                            const mesh = new THREE.Mesh(visualGeo, material);
                             mesh.castShadow = true;
                             mesh.receiveShadow = true;
                             this.game.scene.add(mesh);
-
-                            // Physics
-                            geometry.computeBoundingBox();
-                            const box = geometry.boundingBox!;
-                            const size = new THREE.Vector3();
-                            box.getSize(size);
-                            const center = new THREE.Vector3();
-                            box.getCenter(center);
-
-                            const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
-                            const body = new CANNON.Body({
-                                mass: 0,
-                                position: new CANNON.Vec3(center.x, center.y, center.z)
-                            });
-                            body.addShape(shape);
-                            this.game.world.addBody(body);
                         }
                     }
                 }
@@ -232,8 +362,8 @@ export class LevelGenerator {
         const origin = entity.origin as THREE.Vector3;
         if (!origin) return;
 
-        // Coords: Source (x, y, z) -> Three (x*0.03, z*0.03, -y*0.03) (Rotated -90 X)
-        const scale = 0.03;
+        // Coords: Source (x, y, z) -> Three (x*S, z*S, -y*S)
+        const scale = 0.02;
         const pos = new THREE.Vector3(origin.x * scale, origin.z * scale, -origin.y * scale);
 
         console.log(`Spawning ${entity.classname} at VMF(${origin.x}, ${origin.y}, ${origin.z}) -> World(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
@@ -243,8 +373,8 @@ export class LevelGenerator {
                 const player = this.game.player;
                 // Reset player pos
                 // Increased spawn height to 50 (approx 1.5m) to ensure not stuck in floor
-                player.body.position.set(pos.x, pos.y + 5, pos.z);
-                player.body.velocity.set(0, 0, 0);
+                player.body!.position.set(pos.x, pos.y + 5, pos.z);
+                player.body!.velocity.set(0, 0, 0);
             }
         } else if (entity.classname === 'info_player_terrorist') {
             if (this.game.player) {
@@ -430,7 +560,6 @@ export class LevelGenerator {
         const spawnPoints = voxelMap.getSpawnPoints();
         if (spawnPoints.length === 0) return;
 
-        const squadSpawns: THREE.Vector3[] = [];
         const scale = voxelMap.scale;
 
         for (const spawn of spawnPoints) {

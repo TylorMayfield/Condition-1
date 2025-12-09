@@ -1,0 +1,23 @@
+    private handleCrouching(dt: number) {
+        // Smoothly interpolate crouch
+        const crouchSpeed = 8; // Faster than lean for responsive feel
+        this.crouchAmount += (this.targetCrouch - this.crouchAmount) * crouchSpeed * dt;
+        
+        // Clamp to avoid overshoot
+        this.crouchAmount = Math.max(0, Math.min(1, this.crouchAmount));
+    }
+
+    private checkCeiling(): boolean {
+        // Check if there's a ceiling above preventing standing up
+        if (!this.gameObject.body) return false;
+
+        const start = this.gameObject.body.position.clone();
+        const end = start.clone();
+        end.y += 1.2; // Check ~standing height
+
+        const ray = new CANNON.Ray(start, end);
+        const result = new CANNON.RaycastResult();
+        ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
+
+        return result.hasHit;
+    }

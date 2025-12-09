@@ -8,14 +8,17 @@ export class HUDManager {
     // Elements
     private healthDisplay: HTMLDivElement;
     private ammoDisplay: HTMLDivElement;
-    private compassDisplay: HTMLDivElement;
-    private compassMarker!: HTMLDivElement;
     private squadDisplay: HTMLDivElement;
     private fpsDisplay: HTMLDivElement;
-    // private vignette: HTMLDivElement; // Not stored if not accessed
+    private posDisplay: HTMLDivElement;
+    private velDisplay: HTMLDivElement;
+
+    // Compass
+    private compassTape: HTMLDivElement;
 
     private frameCount: number = 0;
     private timeElapsed: number = 0;
+    private prevPos: THREE.Vector3 = new THREE.Vector3();
 
     constructor(game: Game) {
         this.game = game;
@@ -34,9 +37,16 @@ export class HUDManager {
 
         this.healthDisplay = this.createHealthDisplay();
         this.ammoDisplay = this.createAmmoDisplay();
-        this.compassDisplay = this.createCompassDisplay();
+
+        // Compass Setup
+        // Compass Setup
+        const compassObj = this.createCompassDisplay();
+        this.compassTape = compassObj.tape;
+
         this.squadDisplay = this.createSquadDisplay();
         this.fpsDisplay = this.createFPSDisplay();
+        this.posDisplay = this.createPosDisplay();
+        this.velDisplay = this.createVelDisplay();
         this.createVignette();
     }
 
@@ -75,6 +85,32 @@ export class HUDManager {
         return div;
     }
 
+    private createPosDisplay(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '50px'; // Below compass
+        div.style.left = '50%';
+        div.style.transform = 'translateX(-50%)';
+        div.style.fontSize = '12px';
+        div.style.color = 'rgba(0, 255, 0, 0.7)';
+        div.innerText = 'POS: 0 0 0';
+        this.container.appendChild(div);
+        return div;
+    }
+
+    private createVelDisplay(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '70px'; // Below POS
+        div.style.left = '50%';
+        div.style.transform = 'translateX(-50%)';
+        div.style.fontSize = '12px';
+        div.style.color = 'rgba(0, 255, 255, 0.7)'; // Cyan for velocity
+        div.innerText = 'VEL: 0.00 m/s';
+        this.container.appendChild(div);
+        return div;
+    }
+
     private createVignette(): HTMLDivElement {
         const div = document.createElement('div');
         div.style.position = 'absolute';
@@ -83,9 +119,8 @@ export class HUDManager {
         div.style.width = '100%';
         div.style.height = '100%';
         div.style.pointerEvents = 'none';
-        
-        // Goggle vignette with nose bump using CSS mask
-        // Create SVG mask data URI for vignette with nose bump cutout
+
+        // Goggle vignette
         const svgMask = `data:image/svg+xml,${encodeURIComponent(`
             <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
                 <defs>
@@ -95,19 +130,16 @@ export class HUDManager {
                     </radialGradient>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#vignette)"/>
-                <!-- Nose bump cutout - lighter area at bottom center -->
                 <ellipse cx="50%" cy="100%" rx="15%" ry="8%" fill="white" opacity="0.2"/>
             </svg>
         `)}`;
-        
-        // Much lighter vignette - was 0.9 (90% black), now 0.3 (30% black) for subtle effect
+
         div.style.background = 'rgba(0,0,0,0.3)';
         div.style.maskImage = svgMask;
         div.style.webkitMaskImage = svgMask;
         div.style.maskSize = '100% 100%';
         div.style.webkitMaskSize = '100% 100%';
-        
-        // Prepend to be behind other elements
+
         if (this.container.firstChild) {
             this.container.insertBefore(div, this.container.firstChild);
         } else {
@@ -116,31 +148,42 @@ export class HUDManager {
         return div;
     }
 
-    private createCompassDisplay(): HTMLDivElement {
-        const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.top = '20px';
-        div.style.left = '50%';
-        div.style.transform = 'translateX(-50%)';
-        div.style.width = '300px';
-        div.style.height = '20px';
-        div.style.border = '2px solid #00ff00';
-        div.style.borderRadius = '10px';
-        div.style.overflow = 'hidden';
-        div.style.background = 'rgba(0, 50, 0, 0.5)';
+    private createCompassDisplay(): { container: HTMLDivElement, tape: HTMLDivElement } {
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.top = '20px';
+        container.style.left = '50%';
+        container.style.transform = 'translateX(-50%)';
+        container.style.width = '300px';
+        container.style.height = '24px';
+        container.style.border = '1px solid #00ff00';
+        container.style.borderRadius = '4px';
+        container.style.overflow = 'hidden';
+        container.style.background = 'rgba(0, 50, 0, 0.5)';
 
-        // Marker
-        this.compassMarker = document.createElement('div');
-        this.compassMarker.style.position = 'absolute';
-        this.compassMarker.style.top = '0';
-        this.compassMarker.style.left = '50%';
-        this.compassMarker.style.width = '4px';
-        this.compassMarker.style.height = '100%';
-        this.compassMarker.style.backgroundColor = '#ffff00';
+        // Center Indicator
+        const centerMark = document.createElement('div');
+        centerMark.style.position = 'absolute';
+        centerMark.style.top = '0';
+        centerMark.style.left = '50%';
+        centerMark.style.width = '2px';
+        centerMark.style.height = '100%';
+        centerMark.style.backgroundColor = '#ffff00'; // Yellow center
+        centerMark.style.transform = 'translateX(-50%)';
+        centerMark.style.zIndex = '2';
+        container.appendChild(centerMark);
 
-        div.appendChild(this.compassMarker);
-        this.container.appendChild(div);
-        return div;
+        // Tape (Holds markers)
+        const tape = document.createElement('div');
+        tape.style.position = 'absolute';
+        tape.style.top = '0';
+        tape.style.left = '0';
+        tape.style.width = '100%';
+        tape.style.height = '100%';
+        container.appendChild(tape);
+
+        this.container.appendChild(container);
+        return { container, tape };
     }
 
     private createSquadDisplay(): HTMLDivElement {
@@ -178,64 +221,120 @@ export class HUDManager {
         }
 
         // Update Ammo
-        const weapon = this.game.player.getCurrentWeapon(); // Need to ensure this exists or similar
+        const weapon = this.game.player.getCurrentWeapon();
         if (weapon) {
             this.ammoDisplay.innerHTML = `MAG: ${weapon.currentAmmo} <br> RES: ${weapon.reserveAmmo}`;
         }
 
-        if (this.compassDisplay && this.squadDisplay) {
-            // Placeholder usage
+        // Update Position
+        if (this.posDisplay) {
+            const p = this.game.camera.position;
+            // VMF coordinates are scaled by 0.02.
+            this.posDisplay.innerText = `POS: ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}`;
+        }
+
+        // Update Velocity (Real Speed based on Position Delta)
+        if (this.velDisplay) {
+            const currentPos = this.game.camera.position;
+            // Horizontal distance
+            const dx = currentPos.x - this.prevPos.x;
+            const dz = currentPos.z - this.prevPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+
+            // Avoid division by zero or massive spikes on first frame
+            let speed = 0;
+            if (_dt > 0.001) {
+                speed = dist / _dt;
+            }
+
+            // Smoothing (optional, but good for readability)
+            // But let's show raw for accuracy first, maybe simple EMA if jittery.
+            // speed = speed * 0.2 + prevSpeed * 0.8?
+
+            this.velDisplay.innerText = `VEL: ${speed.toFixed(2)} m/s`;
+
+            // Update prevPos
+            this.prevPos.copy(currentPos);
         }
 
         // Update Compass
-        // Calculate angle to Extraction Zone
-        if (this.game.extractionZone) {
-            const playerPos = this.game.camera.position;
-            const targetPos = this.game.extractionZone.mesh.position;
+        this.updateCompass();
+    }
 
-            // Player forward direction (yaw)
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.game.camera.quaternion);
-            forward.y = 0;
-            forward.normalize();
+    private updateCompass() {
+        if (!this.compassTape) return;
 
-            // Direction to target
-            const toTarget = new THREE.Vector3().subVectors(targetPos, playerPos);
-            toTarget.y = 0;
-            toTarget.normalize();
+        // Clear previous markers (inefficient but simple)
+        this.compassTape.innerHTML = '';
 
-            // Angle difference
-            // Dot product gives cos(angle). Cross product y gives sign.
-            // Actually simpler: 
-            // Camera Yaw
-            const euler = new THREE.Euler().setFromQuaternion(this.game.camera.quaternion, 'YXZ');
-            const yaw = euler.y; // Radians
+        // Player Yaw
+        const euler = new THREE.Euler().setFromQuaternion(this.game.camera.quaternion, 'YXZ');
+        let yaw = euler.y; // Radians, 0 = South (Three.js +Z is South)
+        // Three JS: +Z is South, -Z is North. +X is East, -X is West.
+        // Yaw starts at 0 facing -Z (North)? No, Euler 0,0,0 means looking down -Z. 
+        // Let's verify standard Three.js orientation.
+        // Default camera looks down -Z.
+        // Rotation Y affects which way is "forward" relative to -Z.
 
-            // Target Yaw
-            const targetYaw = Math.atan2(targetPos.x - playerPos.x, targetPos.z - playerPos.z);
+        // Compass Directions in Radians relative to World -Z
+        /* Unused reference
+        const directions = [
+            { label: 'N', angle: 0 },             // -Z
+            { label: 'NE', angle: -Math.PI / 4 },
+            { label: 'E', angle: -Math.PI / 2 },  // -X
+            { label: 'SE', angle: -Math.PI * 0.75 },
+            { label: 'S', angle: Math.PI },       // +Z
+            { label: 'SW', angle: Math.PI * 0.75 },
+            { label: 'W', angle: Math.PI / 2 },   // +X
+            { label: 'NW', angle: Math.PI / 4 }
+        ];
+        */
 
-            // Delta
-            let delta = targetYaw - yaw;
-            // Normalize to -PI to PI
+        // Correcting Angles based on Three.js:
+        // N = 0 (Look -Z)
+        // W = +PI/2 (Look -X) -> Yaw +90 deg turns Left
+        // S = PI (Look +Z)
+        // E = -PI/2 (Look +X) -> Yaw -90 deg turns Right
+
+        // Override logic:
+        const cardinals = [
+            { label: 'N', rad: 0 },
+            { label: 'NW', rad: Math.PI / 4 },
+            { label: 'W', rad: Math.PI / 2 },
+            { label: 'SW', rad: 3 * Math.PI / 4 },
+            { label: 'S', rad: Math.PI }, // or -PI
+            { label: 'SE', rad: -3 * Math.PI / 4 },
+            { label: 'E', rad: -Math.PI / 2 },
+            { label: 'NE', rad: -Math.PI / 4 }
+        ];
+
+        // visible FOV on compass (width in radians)
+        const visibleArc = THREE.MathUtils.degToRad(120);
+        const widthPx = 300;
+        const pxPerRad = widthPx / visibleArc;
+
+        for (const dir of cardinals) {
+            // Calculate delta
+            let delta = dir.rad - yaw;
+
+            // Normalize delta to -PI..PI
             while (delta > Math.PI) delta -= Math.PI * 2;
             while (delta < -Math.PI) delta += Math.PI * 2;
 
-            // Map delta (-PI to PI) to pixel offset in bar (say +/- 150px)
-            // Clamp to FOV roughly? Or generic compass
-            // Let's scroll the marker. 
-            // If delta is 0 (facing), marker is at 50%.
-            // If delta is PI/2 (right), marker is at 100%?
+            // Check if visible
+            if (Math.abs(delta) < visibleArc / 2) {
+                // Render
+                const left = (widthPx / 2) + (delta * -1 * pxPerRad); // -1 to reverse movement (turn right -> objects move left)
 
-            const pxOffset = (delta / (Math.PI / 2)) * 150; // 90 degrees = full edge
-            // Clamp visual
-            const center = 150; // half of 300px
-            let left = center + pxOffset;
-
-            // Hide if behind
-            if (Math.abs(delta) > Math.PI / 2) {
-                this.compassMarker.style.display = 'none';
-            } else {
-                this.compassMarker.style.display = 'block';
-                this.compassMarker.style.left = `${left}px`;
+                const marker = document.createElement('div');
+                marker.style.position = 'absolute';
+                marker.style.left = `${left}px`;
+                marker.style.top = '2px';
+                marker.style.transform = 'translateX(-50%)';
+                marker.style.color = dir.label.length === 1 ? '#fff' : '#aaa'; // Highlight main cardinals
+                marker.style.fontWeight = dir.label.length === 1 ? 'bold' : 'normal';
+                marker.innerText = dir.label;
+                this.compassTape.appendChild(marker);
             }
         }
     }

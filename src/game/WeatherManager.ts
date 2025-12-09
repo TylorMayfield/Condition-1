@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { Game } from '../engine/Game';
 
 export const WeatherType = {
@@ -54,8 +55,8 @@ export class WeatherManager {
         const snowPos = [];
         for (let i = 0; i < this.particleCount; i++) {
             snowPos.push((Math.random() - 0.5) * 40);
-            // Completely random heights from 0 to 60 to ensure particles are never synchronized
-            snowPos.push(Math.random() * 60);
+            // Lower spawn height to prevent particles from spawning above map geometry
+            snowPos.push(Math.random() * 20);
             snowPos.push((Math.random() - 0.5) * 40);
         }
         this.snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowPos, 3));
@@ -99,6 +100,11 @@ export class WeatherManager {
         const deltaZ = cameraPos.z - this.lastCameraPos.z;
         this.lastCameraPos.copy(cameraPos);
 
+        // Shared Raycast objects
+        const ray = new CANNON.Ray(new CANNON.Vec3(), new CANNON.Vec3());
+        const result = new CANNON.RaycastResult();
+        const world = this.game.world;
+
         // Process both rain and snow particles
         this.systems.forEach(sys => {
             const positions = sys.geometry.attributes.position.array as Float32Array;
@@ -118,9 +124,13 @@ export class WeatherManager {
                 let z = positions[i * 3 + 2];
 
                 // 1. Move by Velocity
-                x += (velocity.x + this.wind.x) * dt;
-                y += (velocity.y + this.wind.y) * dt;
-                z += (velocity.z + this.wind.z) * dt;
+                const dx = (velocity.x + this.wind.x) * dt;
+                const dy = (velocity.y + this.wind.y) * dt;
+                const dz = (velocity.z + this.wind.z) * dt;
+
+                x += dx;
+                y += dy;
+                z += dz;
 
                 // 2. Shift by Camera Delta (to keep world-space position const relative to camera motion)
                 x -= deltaX;
@@ -135,13 +145,49 @@ export class WeatherManager {
                 if (z > range) z -= range * 2;
 
                 // Vertical wrap
-                const maxY = sys.geometry === this.snowGeo ? 60 : 20;
-                if (y < 0) {
-                    y = sys.geometry === this.snowGeo ? Math.random() * 60 : maxY;
-                    // Randomize XZ on respawn to break patterns
+                const maxY = sys.geometry === this.snowGeo ? 50 : 20; // Reduce max slightly if we shift min down
+                const minY = -10; // Allow falling below camera (ground level is approx -2 relative to cam)
+
+                // Shared variables for collision (optimization)
+                let reset = false;
+                const isSnow = sys.geometry === this.snowGeo;
+
+                // 4. Collision Checks (Snow Only)
+                if (isSnow) {
+                    const wx = cameraPos.x + x;
+                    const wy = cameraPos.y + y;
+                    const wz = cameraPos.z + z;
+
+                    // A) Movement Collision (prevent going through walls)
+                    const px = wx - dx;
+                    const py = wy - dy;
+                    const pz = wz - dz;
+
+                    ray.from.set(px, py, pz);
+                    ray.to.set(wx, wy, wz);
+                    result.reset();
+                    ray.intersectWorld(world, { result: result });
+                    if (result.hasHit) reset = true;
+
+                    // B) Sky Occlusion (prevent existing under roof)
+                    if (!reset) {
+                        ray.from.set(wx, wy, wz);
+                        ray.to.set(wx, wy + 50, wz); // Check 50 units up
+                        result.reset();
+                        ray.intersectWorld(world, { result: result, skipBackfaces: true });
+                        if (result.hasHit) reset = true;
+                    }
+                }
+
+                if (y < minY || reset) {
                     if (sys.geometry === this.snowGeo) {
+                        // Respawn at lower height (5-15 units above camera)
+                        y = 5 + Math.random() * 10;
+                        // Randomize XZ on respawn
                         x = (Math.random() - 0.5) * 40;
                         z = (Math.random() - 0.5) * 40;
+                    } else {
+                        y = maxY;
                     }
                 }
 
