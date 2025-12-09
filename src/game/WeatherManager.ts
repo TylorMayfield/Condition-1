@@ -28,8 +28,8 @@ export class WeatherManager {
         this.game = game;
         this.initParticles();
 
-        // Start random weather
-        this.setWeather(WeatherType.Rain);
+        // Start with snow weather
+        this.setWeather(WeatherType.Snow);
     }
 
     private initParticles() {
@@ -89,8 +89,15 @@ export class WeatherManager {
         }
     }
 
+    private lastCameraPos = new THREE.Vector3();
+
     public update(dt: number) {
         if (this.currentWeather === WeatherType.Clear) return;
+
+        const cameraPos = this.game.camera.position;
+        const deltaX = cameraPos.x - this.lastCameraPos.x;
+        const deltaZ = cameraPos.z - this.lastCameraPos.z;
+        this.lastCameraPos.copy(cameraPos);
 
         // Process both rain and snow particles
         this.systems.forEach(sys => {
@@ -98,9 +105,11 @@ export class WeatherManager {
             // Use appropriate velocity based on which geometry this is
             const velocity = sys.geometry === this.snowGeo ? this.snowVelocity : this.rainVelocity;
 
-            // Move with camera
-            sys.position.x = this.game.camera.position.x;
-            sys.position.z = this.game.camera.position.z;
+            // Keep system at 0,0,0 effectively, or rather, don't move system, move particles relative to camera
+            // Actually, best trick: Keep system attached to camera (for frustum/rendering range), 
+            // but shift particles opposite to camera movement.
+
+            sys.position.copy(cameraPos);
 
             // Sim
             for (let i = 0; i < this.particleCount; i++) {
@@ -108,26 +117,33 @@ export class WeatherManager {
                 let y = positions[i * 3 + 1];
                 let z = positions[i * 3 + 2];
 
+                // 1. Move by Velocity
                 x += (velocity.x + this.wind.x) * dt;
                 y += (velocity.y + this.wind.y) * dt;
                 z += (velocity.z + this.wind.z) * dt;
 
-                // Wrap around - use larger range for snow (60) vs rain (20)
-                // For snow, reset to random height to prevent synchronized "wall" effect
+                // 2. Shift by Camera Delta (to keep world-space position const relative to camera motion)
+                x -= deltaX;
+                z -= deltaZ;
+
+                // 3. Wrap around volume center (which is 0,0,0 local to camera)
+                // Range is -20 to 20
+                const range = 20;
+                if (x < -range) x += range * 2;
+                if (x > range) x -= range * 2;
+                if (z < -range) z += range * 2;
+                if (z > range) z -= range * 2;
+
+                // Vertical wrap
                 const maxY = sys.geometry === this.snowGeo ? 60 : 20;
                 if (y < 0) {
-                    // Reset snow particles to random heights to prevent wall effect
                     y = sys.geometry === this.snowGeo ? Math.random() * 60 : maxY;
-                    // Also randomize X and Z slightly when wrapping to break up patterns
+                    // Randomize XZ on respawn to break patterns
                     if (sys.geometry === this.snowGeo) {
                         x = (Math.random() - 0.5) * 40;
                         z = (Math.random() - 0.5) * 40;
                     }
                 }
-                if (x < -20) x = 20;
-                if (x > 20) x = -20;
-                if (z < -20) z = 20;
-                if (z > 20) z = -20;
 
                 positions[i * 3] = x;
                 positions[i * 3 + 1] = y;

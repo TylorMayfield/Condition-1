@@ -7,30 +7,92 @@ export class MapMenuManager {
     private game: Game;
     private levelGen: LevelGenerator;
     private availableMaps: string[] = [];
-    private currentMap: string = 'de_dust2';
+    private currentMap: string = 'killhouse';
 
     // Map Builder
     private mapBuilder: MapBuilder | null = null;
     private mapBuilderUI: MapBuilderUI | null = null;
 
+    private loadingOverlay: HTMLElement | null = null;
+    private loadingText: HTMLElement | null = null;
+
     constructor(game: Game, levelGen: LevelGenerator) {
         this.game = game;
         this.levelGen = levelGen;
+        this.createLoadingOverlay();
         this.discoverMaps();
     }
 
+    private createLoadingOverlay() {
+        this.loadingOverlay = document.createElement('div');
+        this.loadingOverlay.id = 'loading-overlay';
+        Object.assign(this.loadingOverlay.style, {
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            display: 'none',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: '2000',
+            color: 'white',
+            fontFamily: 'sans-serif',
+            userSelect: 'none'
+        });
+
+        // Spinner Style
+        const style = document.createElement('style');
+        style.textContent = `
+            .spinner {
+                width: 50px;
+                height: 50px;
+                border: 5px solid rgba(255,255,255,0.1);
+                border-top: 5px solid #3498db;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
+        this.loadingOverlay.appendChild(spinner);
+
+        this.loadingText = document.createElement('div');
+        this.loadingText.style.fontSize = '24px';
+        this.loadingText.style.fontWeight = 'bold';
+        this.loadingText.textContent = 'Loading...';
+        this.loadingOverlay.appendChild(this.loadingText);
+
+        document.body.appendChild(this.loadingOverlay);
+    }
+
+    public showLoading(message: string = 'Loading...') {
+        if (this.loadingOverlay && this.loadingText) {
+            this.loadingText.textContent = message;
+            this.loadingOverlay.style.display = 'flex';
+        }
+    }
+
+    public hideLoading() {
+        if (this.loadingOverlay) {
+            this.loadingOverlay.style.display = 'none';
+        }
+    }
+
     private async discoverMaps() {
-        // Known maps - in a real implementation, you'd scan the directory
-        // For now, we'll use a static list that can be expanded
+        // Available maps - brushmap format
         this.availableMaps = [
-            'de_dust2',
-            'cs_dunder',
-            'example_map',
-            'complex_dm',
-            'tower_voxel',
-            // TextMap format maps
-            'tower',
-            'warehouse'
+            'killhouse',
+            'de_dust2_d'
         ];
     }
 
@@ -150,7 +212,15 @@ export class MapMenuManager {
                 mapButton.textContent = 'Loading...';
                 mapButton.disabled = true;
 
+                // Show full screen overlay
+                this.showLoading(`Loading ${this.formatMapName(mapName)}...`);
+
+                // Give UI a moment to render
+                await new Promise(resolve => setTimeout(resolve, 50));
+
                 const success = await this.loadMap(mapName);
+
+                this.hideLoading();
 
                 if (success) {
                     // Update button styles

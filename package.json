@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "electron:dev": "concurrently \"vite\" \"electron .\"",
-    "make": "electron-forge make"
+    "make": "electron-forge make",
+    "validate-maps": "npx tsx scripts/validate-maps.ts"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.10.2",
