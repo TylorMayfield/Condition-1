@@ -152,7 +152,10 @@ export class Game {
 
         // Basic Scene Background
         this.scene.background = new THREE.Color(0x87CEEB); // Sky Blue
-        this.scene.fog = new THREE.Fog(0x87CEEB, 0, 50);
+        // Fog for depth (slight)
+        // 0.02 scale means 50 units ~ 80 feet. 
+        // Let's extend it: Start at 20 (30ft), End at 150 (200ft+).
+        this.scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
     }
 
     private onResize() {

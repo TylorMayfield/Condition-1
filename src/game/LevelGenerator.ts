@@ -29,6 +29,8 @@ export class LevelGenerator {
      * Load a map by name, automatically detecting the format
      */
     public async loadMap(mapName: string): Promise<void> {
+        this.clearLevel(); // Clean up previous level first
+
         try {
             // Try VMF first (priority format)
             if (await VmfMapLoader.check(mapName)) {
@@ -62,11 +64,64 @@ export class LevelGenerator {
     }
 
     /**
+     * Clear the current level (meshes, physics, entities)
+     */
+    public clearLevel() {
+        console.log('Clearing current level...');
+
+        // 1. Clear Scene (Meshes & Lights)
+        // Iterate backwards to remove safely
+        for (let i = this.game.scene.children.length - 1; i >= 0; i--) {
+            const child = this.game.scene.children[i];
+
+            // Do not remove Camera
+            if (child instanceof THREE.Camera) continue;
+
+            // Remove Meshes (Map chunks, Entities, Floor)
+            if (child instanceof THREE.Mesh || child instanceof THREE.Group || child instanceof THREE.Light) {
+                this.game.scene.remove(child);
+
+                // Dispose geometry/materials if possible
+                if (child instanceof THREE.Mesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Clear Physics World
+        // Remove all bodies
+        while (this.game.world.bodies.length > 0) {
+            this.game.world.removeBody(this.game.world.bodies[0]);
+        }
+
+        // 3. Clear GameObjects (Entities)
+        // We will implement specific clear logic in Game or loop here
+        // Ideally Game class should handle this
+        // For now, let's just clear the array in Game if accessible, or call remove
+        // Accessing private gameObjects via public getter doesn't help with removal
+        // Let's assume we can clear them one by one
+        const objects = [...this.game.getGameObjects()];
+        objects.forEach(go => this.game.removeGameObject(go));
+
+        // 4. Reset Managers
+        // (Skybox, Weather, etc might need reset)
+        this.game.skyboxManager.reset();
+    }
+
+    /**
      * Spawn player at a specific position
      */
     public spawnPlayer(position?: THREE.Vector3): GameObject {
         return this.entitySpawner.spawnPlayer(position);
     }
+
     /**
      * Generate a procedural test level if loading fails
      */

@@ -20,7 +20,13 @@ export class VmfWorldBuilder {
         this.material = new THREE.MeshStandardMaterial({
             color: 0x888888,
             roughness: 0.8,
-            map: this.createDevTexture(),
+            map: DevTextureGenerator.getTexture('concrete', {
+                color: 0x888888,
+                text: 'DEV',
+                width: 512,
+                height: 512,
+                gridSize: 64
+            }),
             side: THREE.DoubleSide // Need DoubleSide for VMF geometry with mixed normals
         });
         this.material.needsUpdate = false; // Static material
@@ -36,8 +42,8 @@ export class VmfWorldBuilder {
         const chunkMap = new Map<string, Map<string, THREE.BufferGeometry[]>>();
         const CHUNK_SIZE = 20;
 
-        const processVisuals = (geos: Array<{ material: string, geometry: THREE.BufferGeometry }>) => {
-            for (const { material, geometry } of geos) {
+        const processVisuals = (geos: Array<{ material: string, geometry: THREE.BufferGeometry, isDisplacement: boolean }>) => {
+            for (const { material, geometry, isDisplacement } of geos) {
                 // Scale first
                 geometry.scale(0.02, 0.02, 0.02);
 
@@ -57,10 +63,14 @@ export class VmfWorldBuilder {
                     chunkMap.set(chunkKey, new Map());
                 }
                 const matMap = chunkMap.get(chunkKey)!;
-                if (!matMap.has(material)) {
-                    matMap.set(material, []);
+
+                // Key separation for displacements
+                const key = isDisplacement ? `${material}_DISP` : material;
+
+                if (!matMap.has(key)) {
+                    matMap.set(key, []);
                 }
-                matMap.get(material)!.push(geometry);
+                matMap.get(key)!.push(geometry);
             }
         };
 
@@ -91,17 +101,30 @@ export class VmfWorldBuilder {
         // 3. Merge and Create Meshes
         let totalMeshes = 0;
         for (const [chunkKey, matMap] of chunkMap) {
-            for (const [matName, geometries] of matMap) {
+            for (const [matKey, geometries] of matMap) {
                 if (geometries.length === 0) continue;
+
+                const isDisplacement = matKey.endsWith('_DISP');
+                const matName = isDisplacement ? matKey.replace('_DISP', '') : matKey;
 
                 const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
                 if (merged) {
                     merged.computeVertexNormals();
+                    merged.computeBoundingSphere(); // Critical for frustum culling
 
-                    const material = this.getMaterialForTexture(matName);
+                    let material = this.getMaterialForTexture(matName);
+
+                    // If displacement, clone material to apply polygon offset
+                    if (isDisplacement) {
+                        material = material.clone();
+                        material.polygonOffset = true;
+                        material.polygonOffsetFactor = -1; // Draw closer
+                        material.polygonOffsetUnits = -1;
+                    }
+
                     const mesh = new THREE.Mesh(merged, material);
 
-                    mesh.name = `Map_${chunkKey}_${matName}`;
+                    mesh.name = `Map_${chunkKey}_${matKey}`;
                     mesh.frustumCulled = true;
                     // Optimization: Only update matrix once
                     mesh.matrixAutoUpdate = false;
@@ -109,6 +132,7 @@ export class VmfWorldBuilder {
 
                     // Shadows
                     mesh.castShadow = true;
+                    // Displacements might not want to self-shadow as much if flat, but general rule is OK
                     mesh.receiveShadow = true;
 
                     this.scene.add(mesh);
@@ -132,28 +156,43 @@ export class VmfWorldBuilder {
         // Define keywords mapping to Dev Texture Types
         const keywords: Record<string, string> = {
             'concrete': 'concrete',
+            'crete': 'concrete', // "ducrt" matches "crt" so be careful. "DUSANDCRETE"
             'cement': 'concrete',
             'floor': 'concrete',
             'wood': 'wood',
             'crate': 'crate',
+            'crt': 'crate', // e.g. DUCRTLRG
+            'box': 'crate',
             'brick': 'brick',
             'metal': 'metal',
             'steel': 'metal',
-            'wall': 'wall', // generic, map to concrete/wall? Let's use concrete or a new WALL type.
+            'iron': 'metal',
+            'wall': 'wall',
             'stone': 'stone',
             'rock': 'stone',
+            'aaatrigger': 'glass', // triggers often semi-transparent in dev
             'glass': 'glass',
             'window': 'glass',
             'grass': 'grass',
             'dirt': 'dirt',
             'ground': 'dirt',
+            'sand': 'sand',
+            'desert': 'sand',
+            'dust': 'sand',
             'carpet': 'carpet',
-            'rug': 'carpet'
+            'rug': 'carpet',
+            'tile': 'tile'
         };
 
         for (const [key, type] of Object.entries(keywords)) {
             if (lowerName.includes(key)) {
                 matchedType = type;
+                // Don't break immediately, let's see if we can prioritise?
+                // Actually first match is fine for now if list is ordered roughly by specificity.
+                // But 'concrete' is very generic.
+                // 'DUSANDCRETE' contains 'sand' and 'crete'.
+                // If 'crete' is first, it becomes concrete. If 'sand' is first, it becomes sand.
+                // Let's rely on the order in the object above.
                 break;
             }
         }
@@ -229,7 +268,10 @@ export class VmfWorldBuilder {
             stone: 0x555555,
             crate: 0xcda434,
             glass: 0x88ccff,
-            carpet: 0x800020
+            carpet: 0x800020,
+            sand: 0xE6CFA1, // Desert Sand
+            wall: 0xAAAAAA, // Light Grey
+            tile: 0xCCCCCC  // Off-white
         };
         return colors[type] || 0x888888;
     }

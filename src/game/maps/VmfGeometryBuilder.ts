@@ -31,24 +31,27 @@ export class VmfGeometryBuilder {
      * @param filterMaterials If true, excludes faces with ignored materials.
      * @param ignoredMaterials List of material names (substring) to ignore. Defaults to standard tools.
      */
-    /**
-     * Build geometry for a single convex solid.
-     * Uses plane intersection method to find all valid vertices.
-     * @param filterMaterials If true, excludes faces with ignored materials.
-     * @param ignoredMaterials List of material names (substring) to ignore. Defaults to standard tools.
-     */
-    public static buildSolidGeometry(solid: VmfSolid, filterMaterials: boolean = true, ignoredMaterials: string[] = VmfGeometryBuilder.DEFAULT_IGNORED_MATERIALS): Array<{ material: string, geometry: THREE.BufferGeometry }> {
+    public static buildSolidGeometry(solid: VmfSolid, filterMaterials: boolean = true, ignoredMaterials: string[] = VmfGeometryBuilder.DEFAULT_IGNORED_MATERIALS): Array<{ material: string, geometry: THREE.BufferGeometry, isDisplacement: boolean }> {
+        // Debug first few solids
+        const shouldDebug = Math.random() < 0.005; // Sample a few
+        if (shouldDebug) console.log(`Debug: Processing solid with ${solid.sides.length} sides`);
+
         const vertices: THREE.Vector3[] = [];
         const sides = solid.sides;
-        const results: Array<{ material: string, geometry: THREE.BufferGeometry }> = [];
+        const results: Array<{ material: string, geometry: THREE.BufferGeometry, isDisplacement: boolean }> = [];
 
         // 1. Find all vertices by intersecting every triplet of planes
         for (let i = 0; i < sides.length - 2; i++) {
             for (let j = i + 1; j < sides.length - 1; j++) {
                 for (let k = j + 1; k < sides.length; k++) {
                     const intersection = this.getIntersection(sides[i].plane, sides[j].plane, sides[k].plane);
-                    if (intersection && this.isPointInsideSolid(intersection, sides)) {
-                        vertices.push(intersection);
+                    if (intersection) {
+                        const inside = this.isPointInsideSolid(intersection, sides);
+                        if (inside) {
+                            vertices.push(intersection);
+                        } else if (shouldDebug) {
+                            // console.log("Point outside:", intersection);
+                        }
                     }
                 }
             }
@@ -56,16 +59,22 @@ export class VmfGeometryBuilder {
 
         // Remove duplicates
         const uniqueVertices = this.mergeVertices(vertices);
+        if (shouldDebug) console.log(`Debug: Found ${uniqueVertices.length} unique vertices`);
+
         if (uniqueVertices.length < 4) {
+            if (shouldDebug) console.warn("Debug: Skipping solid, not enough vertices");
             return [];
         }
 
         // 2. Build Faces Grouped by Material
-        const materialGroups = new Map<string, { vertices: number[], uvs: number[] }>();
+        const materialGroups = new Map<string, { vertices: number[], uvs: number[], isDisplacement: boolean }>();
 
         for (const side of sides) {
             // Check if material should be skipped
             let matName = side.material.toUpperCase();
+
+            // Store displacement status
+            const isDisp = !!side.dispinfo;
 
             if (filterMaterials && !side.dispinfo && ignoredMaterials.some(m => matName.includes(m))) {
                 continue;
@@ -79,12 +88,16 @@ export class VmfGeometryBuilder {
             if (onPlane.length >= 3) {
                 // Initialize group if needed
                 if (!materialGroups.has(matName)) {
-                    materialGroups.set(matName, { vertices: [], uvs: [] });
+                    materialGroups.set(matName, { vertices: [], uvs: [], isDisplacement: isDisp });
                 }
                 const group = materialGroups.get(matName)!;
 
+                // If any face in this material group is a displacement, mark the whole group
+                if (isDisp) group.isDisplacement = true;
+
                 // Sort vertices to form a convex polygon
-                this.sortVerticesCCW(onPlane, side.plane.normal);
+                // VMF planes point INWARD, so we negate to make the face point OUTWARD
+                this.sortVerticesCCW(onPlane, side.plane.normal.clone().negate());
 
                 // Triangulate fan
                 const center = onPlane[0];
@@ -117,8 +130,16 @@ export class VmfGeometryBuilder {
                 // Source Engine Coordinate Transform
                 geometry.rotateX(-Math.PI / 2);
 
-                results.push({ material, geometry });
+                results.push({
+                    material,
+                    geometry,
+                    isDisplacement: data.isDisplacement
+                });
             }
+        }
+
+        if (results.length === 0 && uniqueVertices.length > 0) {
+            // console.warn(`Debug: Solid had ${uniqueVertices.length} vertices but produced 0 results. MaterialGroups: ${materialGroups.size}`);
         }
 
         return results;
