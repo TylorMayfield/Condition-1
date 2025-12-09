@@ -72,44 +72,30 @@ export class WeatherEffects {
     public update(dt: number) {
         const weather = this.game.weatherManager.currentWeather;
 
-        // Aggressively remove ALL snow particles - they should never exist
-        // Remove them first, before any other processing
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            if (this.particles[i].type === 'snow') {
-                this.particles.splice(i, 1);
-            }
-        }
+        // Spawn Logic
+        this.spawnTimer += dt;
 
-        // Only spawn rain particles - never snow
         if (weather === WeatherType.Rain) {
-            this.spawnTimer += dt;
-            const spawnRate = 0.05; // Rain spawn rate
-
-            if (this.spawnTimer > spawnRate) {
+            if (this.spawnTimer > 0.05) {
                 this.spawnTimer = 0;
                 this.spawnParticle('rain');
             }
+        } else if (weather === WeatherType.Snow) {
+            // Snow spawns slightly slower but lingers
+            if (this.spawnTimer > 0.1) {
+                this.spawnTimer = 0;
+                this.spawnParticle('snow');
+            }
         } else {
-            // For any other weather (including Snow), don't spawn anything
             this.spawnTimer = 0;
         }
 
         // Update Particles
         const positions = this.geometry.attributes.position.array as Float32Array;
-        // We can't easily control per-particle opacity with basic PointsMaterial (it's global opacity * texture alpha).
-        // For "fade out", simpler to just shrink size? Or usage VertexColors?
-        // Let's rely on shrinking size for fade out effect for now, or assume constant alpha until death.
-
         let activeCount = 0;
 
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
-
-            // Double-check: remove any snow particles that somehow still exist
-            if (p.type === 'snow') {
-                this.particles.splice(i, 1);
-                continue;
-            }
 
             p.life -= dt;
             if (p.life <= 0) {
@@ -117,25 +103,12 @@ export class WeatherEffects {
                 continue;
             }
 
-            // Only process rain particles
-            if (p.type === 'rain') {
-                p.y -= p.velocity * dt; // Slide down
-
-                // Update Buffer
-                positions[activeCount * 3] = p.x;
-                positions[activeCount * 3 + 1] = p.y;
-                positions[activeCount * 3 + 2] = 0; // Local Z relative to container (which is at -0.5)
-
-                activeCount++;
-            }
+            activeCount++;
         }
 
         // Hide unused particles
-        // Actually, we must rebuild the buffer or just draw active count. 
-        // ThreeJS Points draws all vertices in buffer. Max range. 
-        // We need to 'hide' the rest.
         for (let i = activeCount; i < this.maxParticles; i++) {
-            positions[i * 3] = 9999; // Move offscreen
+            positions[i * 3] = 9999;
         }
 
         this.geometry.attributes.position.needsUpdate = true;
@@ -144,20 +117,16 @@ export class WeatherEffects {
     private spawnParticle(type: 'rain' | 'snow') {
         if (this.particles.length >= this.maxParticles) return;
 
-        // Screen bounds at z=-0.5 roughly
-        // FoV 75, Aspect ~1.7
-        // H = 2 * tan(75/2) * 0.5 ~= 0.76
-        // W = H * Aspect ~= 1.3
-        const rangeX = 0.6;
-        const rangeY = 0.4;
+        const rangeX = type === 'snow' ? 0.8 : 0.6; // Wider area for snow
+        const rangeY = 0.5;
 
         this.particles.push({
             x: (Math.random() - 0.5) * rangeX,
-            y: (Math.random() - 0.5) * rangeY,
-            life: type === 'rain' ? 0.5 + Math.random() * 0.5 : 2.0 + Math.random() * 2.0, // Snow lasts longer
+            y: (Math.random() - 0.5) * rangeY + 0.2, // Spawn higher up
+            life: type === 'rain' ? 0.5 + Math.random() * 0.5 : 3.0 + Math.random() * 2.0,
             maxLife: 2.0,
             size: type === 'rain' ? 0.05 : 0.08,
-            velocity: type === 'rain' ? 0.5 : 0.05,
+            velocity: type === 'rain' ? 0.8 : 0.1, // Snow falls slow
             type: type
         });
     }

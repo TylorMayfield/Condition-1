@@ -74,7 +74,7 @@ export class RoundManager {
 
         // Ideally check for walls/obstacles, but simple spawn logic for now.
         // We could use LevelGenerator's logic or just spawn high.
-        const spawnPos = new THREE.Vector3(x, 2, z);
+        const spawnPos = new THREE.Vector3(x, 0.8, z); // Floor level + body center offset
 
         const enemy = new Enemy(this.game, spawnPos);
         this.game.addGameObject(enemy);

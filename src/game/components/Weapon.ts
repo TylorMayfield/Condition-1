@@ -19,6 +19,7 @@ export abstract class Weapon {
     // State
     protected lastShot: number = 0;
     public isReloading: boolean = false;
+    protected reloadStartTime: number = 0;
     protected currentRecoil: { x: number, y: number } = { x: 0, y: 0 };
     protected recoilRecovery: number = 0.1;
 
@@ -50,6 +51,7 @@ export abstract class Weapon {
         if (this.isReloading || this.currentAmmo === this.magazineSize || this.reserveAmmo <= 0) return;
 
         this.isReloading = true;
+        this.reloadStartTime = Date.now();
         // console.log('Reloading...'); // Debug
 
         // Wait
@@ -61,7 +63,14 @@ export abstract class Weapon {
         this.reserveAmmo -= toAdd;
         this.currentAmmo += toAdd;
         this.isReloading = false;
+        this.reloadStartTime = 0;
         // console.log('Reload Complete');
+    }
+
+    public getReloadProgress(): number {
+        if (!this.isReloading) return 0;
+        const elapsed = Date.now() - this.reloadStartTime;
+        return Math.min(elapsed / this.reloadTime, 1);
     }
 
     public getAmmoInfo(): string {

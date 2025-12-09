@@ -13,6 +13,7 @@ import { ExtractionZone } from '../game/ExtractionZone';
 import { HUDManager } from '../game/HUDManager';
 import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
+import { PostProcessingManager } from './PostProcessingManager';
 
 export class Game {
     public renderer: THREE.WebGLRenderer;
@@ -35,14 +36,23 @@ export class Game {
     public hudManager: HUDManager;
     public squadManager: SquadManager;
     public skyboxManager: SkyboxManager;
+    public postProcessingManager?: PostProcessingManager;
 
     constructor() {
         // Init Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: false, // We'll use FXAA instead
+            powerPreference: "high-performance"
+        });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Post-processing / Tone Mapping
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.0;
+
         document.body.appendChild(this.renderer.domElement);
 
         // Init Scene
@@ -78,26 +88,34 @@ export class Game {
 
         this.skyboxManager = new SkyboxManager(this);
 
+        // Initialize Post-Processing
+        this.postProcessingManager = new PostProcessingManager(
+            this.renderer,
+            this.scene,
+            this.camera
+        );
+
         // Resize Listener
         window.addEventListener('resize', () => this.onResize());
     }
 
     private setupLighting() {
         // Sky Color (Hemisphere) - provides ambient lighting from sky and ground
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        // Increased intensity for better visibility
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
         hemiLight.position.set(0, 20, 0);
         this.scene.add(hemiLight);
 
         // Sun (Directional) - main light source
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        // Increased intensity
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
         dirLight.position.set(-3, 10, -10);
         dirLight.castShadow = true;
 
         // Shadow configuration - High Res
         dirLight.shadow.mapSize.width = 2048;
         dirLight.shadow.mapSize.height = 2048;
-        dirLight.shadow.type = THREE.PCFSoftShadowMap; // Soft shadows
-        
+
         // Shadow camera bounds
         const d = 20;
         dirLight.shadow.camera.left = -d;
@@ -106,13 +124,13 @@ export class Game {
         dirLight.shadow.camera.bottom = -d;
         dirLight.shadow.camera.near = 0.1;
         dirLight.shadow.camera.far = 100;
-        
+
         // Shadow bias to prevent shadow acne
         dirLight.shadow.bias = -0.0001;
         dirLight.shadow.normalBias = 0.02;
 
         this.scene.add(dirLight);
-        
+
         // Store reference for SkyboxManager
         (this as any).mainDirectionalLight = dirLight;
 
@@ -125,6 +143,7 @@ export class Game {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.postProcessingManager?.setSize(window.innerWidth, window.innerHeight);
     }
 
     public addGameObject(go: GameObject) {
@@ -242,7 +261,11 @@ export class Game {
     }
 
     private render() {
-        this.renderer.render(this.scene, this.camera);
+        if (this.postProcessingManager) {
+            this.postProcessingManager.render(this.time.deltaTime);
+        } else {
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 
     public onEnemyDeath() {

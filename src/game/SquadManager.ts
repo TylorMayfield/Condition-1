@@ -13,7 +13,7 @@ export class SquadManager {
 
     public init() {
         // Spawn Bravo
-        const startPos = new THREE.Vector3(5, 5, 0); // Near player spawn
+        const startPos = new THREE.Vector3(5, 0.8, 0); // Near player spawn, at floor level
         const bravo = new SquadMember(this.game, startPos, "Bravo");
         this.game.addGameObject(bravo);
         this.members.push(bravo);

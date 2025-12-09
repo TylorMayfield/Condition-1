@@ -8,11 +8,19 @@ import type { TileData } from '../TileMap';
 import type { MapMaterials } from './MapMaterials';
 
 export class WallRenderer {
+    private game: Game;
+    private tileMap: TileMap;
+    private materials: MapMaterials;
+
     constructor(
-        private game: Game,
-        private tileMap: TileMap,
-        private materials: MapMaterials
-    ) {}
+        game: Game,
+        tileMap: TileMap,
+        materials: MapMaterials
+    ) {
+        this.game = game;
+        this.tileMap = tileMap;
+        this.materials = materials;
+    }
 
     public renderWalls(): void {
         const width = this.tileMap.getWidth();
@@ -40,7 +48,7 @@ export class WallRenderer {
 
                 for (const check of checks) {
                     const neighbor = this.tileMap.getTileData(check.x, check.y);
-                    
+
                     if (this.shouldCreateWall(tileData, neighbor, check.dir)) {
                         const key = getWallKey(x, y, check.x, check.y);
                         if (!processedWalls.has(key)) {
@@ -56,47 +64,29 @@ export class WallRenderer {
     private shouldCreateWall(tile1: TileData, tile2: TileData | null, direction: string): boolean {
         // 1. Map Edge or Empty Void: Always Wall
         if (!tile2 || tile2.type === TileType.EMPTY) return true;
-        
+
         // 2. Explicit Wall Tiles: If connection is Wall<->Wall, assume smooth (no extra wall).
         if (tile1.type === TileType.WALL && tile2.type === TileType.WALL) return false;
 
         // 3. Ramps/Stairs Logic:
-        // If one tile is a Ramp/Stair, check if they connect properly
         const isSlope1 = this.isSlope(tile1.type);
         const isSlope2 = this.isSlope(tile2.type);
 
         if (isSlope1 || isSlope2) {
-             // If heights differ significantly (more than 1.5 levels), it's a cliff, so build wall.
-             if (Math.abs(tile1.height - tile2.height) > 1.5) return true;
-             
-             // If one is a slope and the other is a walkable floor, check if they connect
-             if (isSlope1 && !isSlope2) {
-                 // tile1 is slope, tile2 is floor
-                 // Check if tile2 is at the target height of the slope (in the direction of travel)
-                 const slopeTargetHeight = this.getSlopeTargetHeight(tile1, direction);
-                 if (slopeTargetHeight !== null && Math.abs(tile2.height - slopeTargetHeight) < 0.5) {
-                     return false; // Slope connects to floor, no wall
-                 }
-                 // If not connecting, check if we need a wall due to height difference
-                 if (Math.abs(tile1.height - tile2.height) > 0.5) return true;
-             } else if (isSlope2 && !isSlope1) {
-                 // tile2 is slope, tile1 is floor
-                 // Check if tile1 is at the target height of the slope (opposite direction)
-                 const slopeTargetHeight = this.getSlopeTargetHeight(tile2, this.getOppositeDirection(direction));
-                 if (slopeTargetHeight !== null && Math.abs(tile1.height - slopeTargetHeight) < 0.5) {
-                     return false; // Slope connects to floor, no wall
-                 }
-                 // If not connecting, check if we need a wall due to height difference
-                 if (Math.abs(tile1.height - tile2.height) > 0.5) return true;
-             } else {
-                 // Both are slopes - if heights are close, no wall
-                 if (Math.abs(tile1.height - tile2.height) <= 1.5) return false;
-                 // If heights differ significantly, build wall
-                 if (Math.abs(tile1.height - tile2.height) > 0.5) return true;
-             }
-             
-             // Default: no wall for slopes (they handle their own transitions)
-             return false;
+            // If heights differ excessively, it's a cliff
+            if (Math.abs(tile1.height - tile2.height) > 1.5) return true;
+
+            // If one is a slope and the other is a walkable floor, check if they connect
+            if (isSlope1 && !isSlope2) {
+                if (Math.abs(tile1.height - tile2.height) <= 1.0) return false;
+            } else if (isSlope2 && !isSlope1) {
+                if (Math.abs(tile1.height - tile2.height) <= 1.0) return false;
+            } else {
+                // Both slopes
+                return false;
+            }
+
+            return true;
         }
 
         // 4. Height Differences (Cliffs): 
@@ -108,25 +98,10 @@ export class WallRenderer {
 
         return false;
     }
-    
-    private getSlopeTargetHeight(tile: TileData, direction: string): number | null {
-        // For stairs/ramps, calculate the target height based on tile type and direction
-        const isUp = tile.type === TileType.STAIRS_UP || tile.type === TileType.RAMP_UP;
-        const heightChange = isUp ? 1 : -1;
-        return tile.height + heightChange;
-    }
-    
-    private getOppositeDirection(direction: string): string {
-        if (direction === 'north') return 'south';
-        if (direction === 'south') return 'north';
-        if (direction === 'east') return 'west';
-        if (direction === 'west') return 'east';
-        return direction;
-    }
 
     private isSlope(type: TileType): boolean {
-        return type === TileType.RAMP_UP || type === TileType.RAMP_DOWN || 
-               type === TileType.STAIRS_UP || type === TileType.STAIRS_DOWN;
+        return type === TileType.RAMP_UP || type === TileType.RAMP_DOWN ||
+            type === TileType.STAIRS_UP || type === TileType.STAIRS_DOWN;
     }
 
     private createWall(pos: THREE.Vector3, tileSize: number, direction: 'north' | 'south' | 'east' | 'west', tileData: TileData): void {
@@ -146,7 +121,7 @@ export class WallRenderer {
         if (tileData.doorDirection === direction || tileData.windowDirection === direction) return;
 
         const go = new GameObject(this.game);
-        
+
         // Visuals
         const geo = new THREE.BoxGeometry(tileSize, wallHeight, wallThickness);
         const mat = tileData.indoor ? this.materials.indoorWall : this.materials.wall;
@@ -162,11 +137,10 @@ export class WallRenderer {
             mass: 0,
             position: new CANNON.Vec3(wallX, pos.y + wallHeight / 2, wallZ),
             shape: shape,
-            material: new CANNON.Material({ friction: 0.1, restitution: 0 }) // Low friction for walls prevents "sticking"
+            material: new CANNON.Material({ friction: 0.1, restitution: 0 })
         });
         go.body.quaternion.copy(go.mesh.quaternion as any);
 
         this.game.addGameObject(go);
     }
 }
-

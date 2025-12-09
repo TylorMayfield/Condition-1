@@ -55,7 +55,7 @@ export class Enemy extends GameObject {
         const shape = new CANNON.Box(new CANNON.Vec3(0.25, 0.8, 0.25)); // 1.6m tall total
         this.body = new CANNON.Body({
             mass: 5, // Heavier
-            position: new CANNON.Vec3(position.x, position.y + 0.8, position.z), // Center at 0.8m
+            position: new CANNON.Vec3(position.x, position.y, position.z), // Spawn position should be at body center height (floor + 0.8m)
             shape: shape,
             fixedRotation: true,
             material: new CANNON.Material({ friction: 0, restitution: 0 })

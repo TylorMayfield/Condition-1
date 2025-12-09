@@ -8,21 +8,29 @@ import type { TileData } from '../TileMap';
 import type { MapMaterials } from './MapMaterials';
 
 export class StairRenderer {
+    private game: Game;
+    private tileMap: TileMap;
+    private materials: MapMaterials;
+
     constructor(
-        private game: Game,
-        private tileMap: TileMap,
-        private materials: MapMaterials
-    ) {}
+        game: Game,
+        tileMap: TileMap,
+        materials: MapMaterials
+    ) {
+        this.game = game;
+        this.tileMap = tileMap;
+        this.materials = materials;
+    }
 
     public createStairs(x: number, y: number, tileData: TileData): void {
         const worldPos = this.tileMap.getWorldPosition(x, y);
         const tileSize = this.tileMap.getTileSize();
         const neighbors = this.getNeighborHeights(x, y);
         const myHeight = tileData.height;
-        
+
         // Determine if stairs go up or down based on tile type
         const isStairUp = tileData.type === TileType.STAIRS_UP;
-        
+
         // Find the neighbor with the height difference that matches the stair direction
         let direction: 'north' | 'south' | 'east' | 'west' = 'north';
         let targetHeight: number | null = null;
@@ -33,9 +41,9 @@ export class StairRenderer {
         for (let i = 0; i < 4; i++) {
             const neighborHeight = neighbors[i];
             if (neighborHeight === null) continue;
-            
+
             const diff = neighborHeight - myHeight;
-            
+
             if (isStairUp && diff > 0) {
                 // Going up - find the highest neighbor
                 if (targetHeight === null || diff > heightDiff) {
@@ -58,7 +66,7 @@ export class StairRenderer {
                 }
             }
         }
-        
+
         // Also check immediate neighbors for any height difference if we haven't found one
         if (targetHeight === null) {
             for (let i = 0; i < 4; i++) {
@@ -80,19 +88,19 @@ export class StairRenderer {
             const searchRadius = 5; // Increased radius to find distant height changes
             let bestDiff = isStairUp ? -Infinity : Infinity;
             let bestDist = Infinity;
-            
+
             for (let dy = -searchRadius; dy <= searchRadius; dy++) {
                 for (let dx = -searchRadius; dx <= searchRadius; dx++) {
                     if (dx === 0 && dy === 0) continue;
-                    
+
                     const checkX = x + dx;
                     const checkY = y + dy;
                     const checkTile = this.tileMap.getTileData(checkX, checkY);
                     if (!checkTile) continue;
-                    
+
                     const diff = checkTile.height - myHeight;
                     const dist = Math.abs(dx) + Math.abs(dy);
-                    
+
                     // For stairs going up, find the closest higher tile
                     // For stairs going down, find the closest lower tile
                     if (isStairUp && diff > 0) {
@@ -136,10 +144,10 @@ export class StairRenderer {
         }
 
         const totalHeight = Math.abs(heightDiff * tileSize);
-        const stepCount = 6; 
+        const stepCount = 6;
         const stepHeight = totalHeight / stepCount;
         const stepDepth = tileSize / stepCount;
-        
+
         let rotationY = 0;
         if (direction === 'south') rotationY = Math.PI;
         else if (direction === 'east') rotationY = -Math.PI / 2;
@@ -149,79 +157,130 @@ export class StairRenderer {
         // Steps should start from the edge in the direction of travel
         const startHeight = myHeight * tileSize;
         const endHeight = targetHeight * tileSize;
-        
+
         for (let i = 0; i < stepCount; i++) {
             const go = new GameObject(this.game);
-            
+
             // Visuals
             const geo = new THREE.BoxGeometry(tileSize, stepHeight, stepDepth);
             const mat = tileData.indoor ? this.materials.indoorFloor : this.materials.floor;
             go.mesh = new THREE.Mesh(geo, mat);
 
             // Calculate step position along the direction of travel
-            // Steps should progress from the starting edge (lower height) toward the target edge (higher height)
-            // In local coordinates before rotation: Z is forward (north = positive Z), X is right (east = positive X)
-            
             let localZ: number = 0;
             let localX: number = 0;
-            
-            // For stairs going UP, steps start at the edge OPPOSITE to the direction and progress TOWARD the direction
-            // For stairs going DOWN, steps start at the direction edge and progress AWAY from it
-            // The first step (i=0) should be at the starting edge, last step at the target edge
-            
+
+            // CORRECTED LOGIC:
+            // "Up North" means we travel North (-Z). Steps start at South edge (+Z) and move North (-Z).
+            // "Down North" means we travel North (-Z) but go down. Steps start at South edge (+Z) and move North (-Z).
+            // So for a given Direction, the horizontal placement logic is the same regardless of Up/Down.
+            // The Height logic (stepY) handles the slope.
+
             if (direction === 'north') {
-                // North: steps go from south to north (negative Z to positive Z)
-                if (isStairUp) {
-                    // Going up north: start at south edge, move north
-                    localZ = -tileSize/2 + (stepDepth/2) + (i * stepDepth);
-                } else {
-                    // Going down north: start at north edge, move south
-                    localZ = tileSize/2 - (stepDepth/2) - (i * stepDepth);
-                }
+                // Move South -> North (+Z -> -Z)
+                // Start (0) at +Z edge, End (count) at -Z edge
+                localZ = tileSize / 2 - (stepDepth / 2) - (i * stepDepth);
             } else if (direction === 'south') {
-                // South: steps go from north to south (positive Z to negative Z)
-                if (isStairUp) {
-                    // Going up south: start at north edge, move south
-                    localZ = tileSize/2 - (stepDepth/2) - (i * stepDepth);
-                } else {
-                    // Going down south: start at south edge, move north
-                    localZ = -tileSize/2 + (stepDepth/2) + (i * stepDepth);
-                }
+                // Move North -> South (-Z -> +Z)
+                // Start (0) at -Z edge, End (count) at +Z edge
+                localZ = -tileSize / 2 + (stepDepth / 2) + (i * stepDepth);
             } else if (direction === 'east') {
-                // East: steps go from west to east (negative X to positive X)
-                // After -90° rotation, X becomes the forward axis (Z)
-                if (isStairUp) {
-                    // Going up east: start at west edge, move east
-                    localX = -tileSize/2 + (stepDepth/2) + (i * stepDepth);
+                // Move West -> East (-X -> +X)
+                // Start (0) at -X edge, End (count) at +X edge
+                // Rotated local space? The previous code used rotationY. 
+                // The Vector3 construction below uses localX, localZ and then applies rotationY.
+                // If we apply rotation, we should just calculate "forward" motion in local Z and let rotation handle it?
+                // The previous code had specific blocks for East/West setting localX.
+                // Let's stick to setting local coordinates matching world axes roughly, but wait:
+                // If we rotate, we should build the stairs along Z and rotate them? 
+                // The previous code set 'rotationY' but also set localX for East/West.
+                // If rotationY is set for East (-PI/2), then Local Forward (-Z) becomes World East (+X).
+                // Let's look at how vec is made: new Vector3(localX, localY, localZ).applyAxisAngle...
+
+                // Let's rely on the explicit coordinate setting from before but corrected:
+
+                // East case in previous code used rotation -PI/2.
+                // And set localX. 
+                // If we rotate -90, (0,0,-1) becomes (-1,0,0) [West]. Wait.
+                // North is -Z. East is +X.
+                // Rotate -90 around Y (clockwise). North (-Z) -> (-1) * -Z -> East (+X). Correct.
+                // So if we set localZ to move South->North, rotation makes it West->East.
+
+                // HOWEVER, the previous code manually set localX for East/West and kept localZ 0.
+                // This means it was NOT relying on the rotation to position the steps relative to center, separate from orientation.
+                // It was calculating world-space-aligned offsets (before rotation? No, explicitly localX).
+                // Let's stick to the previous pattern since rotation aligns the Box geometry "facing".
+
+                if (direction === 'east') {
+                    // Move West -> East (-X -> +X)
+                    localX = -tileSize / 2 + (stepDepth / 2) + (i * stepDepth);
+                    localZ = 0;
+                } else if (direction === 'west') {
+                    // Move East -> West (+X -> -X)
+                    localX = tileSize / 2 - (stepDepth / 2) - (i * stepDepth);
+                    localZ = 0;
                 } else {
-                    // Going down east: start at east edge, move west
-                    localX = tileSize/2 - (stepDepth/2) - (i * stepDepth);
+                    // North/South (already handled above but localX should be 0)
+                    localX = 0;
                 }
-                localZ = 0;
             } else { // west
-                // West: steps go from east to west (positive X to negative X)
-                // After 90° rotation, X becomes the forward axis (Z)
-                if (isStairUp) {
-                    // Going up west: start at east edge, move west
-                    localX = tileSize/2 - (stepDepth/2) - (i * stepDepth);
-                } else {
-                    // Going down west: start at west edge, move east
-                    localX = -tileSize/2 + (stepDepth/2) + (i * stepDepth);
-                }
+                // Move East -> West (+X -> -X)
+                localX = tileSize / 2 - (stepDepth / 2) - (i * stepDepth);
                 localZ = 0;
             }
-            
+
             // Calculate step height: interpolate between start and end heights
-            // For stairs going UP, first step (i=0) should be at startHeight, last step at endHeight
-            // For stairs going DOWN, first step should be at endHeight, last step at startHeight
             const stepProgress = isStairUp ? (i + 0.5) / stepCount : 1 - (i + 0.5) / stepCount;
             const stepY = startHeight + (endHeight - startHeight) * stepProgress + stepHeight / 2;
             const localY = stepY - worldPos.y + 0.01; // Offset to sit on base floor
 
             const vec = new THREE.Vector3(localX, localY, localZ);
-            vec.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationY);
+            // Verify: if we set localX for East, do we still rotate?
+            // Previous code: yes. 
+            // If direction East, rotation is -PI/2.
+            // If we set localX to match World East... and then rotate?
+            // If we act in local space, we should probably just build "Forward" stairs and rotate.
+            // BUT, the 'getNeighborHeights' and logic uses world Grid.
+            // Let's trust my derivation: explicit local offsets + explicit rotation for the mesh orientation.
+            // Wait, if I set localX increasing (West->East), and then Rotate...
+            // Rotation rotates the POSITION 'vec'.
+            // If I want the final result to be West->East positions,
+            // And I rotate by -90, what input gives West->East?
+            // Input (North->South, +Z) rotated -90 -> (East->West, -X)? No.
+            // Let's Simplify: Remove rotation from position calculation if we are manually setting X/Z.
+            // Only apply rotation to the MESH/BODY orientation.
 
-            go.mesh.position.set(worldPos.x + vec.x, worldPos.y + vec.y, worldPos.z + vec.z);
+            // Actually, looking at previous code: `vec.applyAxisAngle(...)`.
+            // This suggests local coords are in "Stair Space" and then rotated?
+            // But the previous code had specific `if (direction == 'east') localX = ...`
+            // If it was purely local "forward" logic, it wouldn't check direction inside the loop for X vs Z.
+            // It suggests a mix.
+            // Let's REMOVE the vector rotation for position and just use world-aligned local offsets!
+            // We only need rotation for the Box shape (steps are wide and shallow).
+
+            // So:
+            // 1. Calculate localX, localY, localZ relative to tile center, assuming NO rotation for position.
+            // 2. Set this position.
+            // 3. Set rotation for the MESH/BODY only (to align step width).
+
+            // Correct logic update:
+            // remove `vec.applyAxisAngle`.
+            // Use localX/Z as calculated.
+
+            // Let's verify MESH rotation.
+            // Box is Width=tileSize (X-axis usually), Height, Depth=stepDepth (Z-axis).
+            // Default assumes steps go along Z axis (North/South).
+            // If direction is East/West, steps should go along X axis.
+            // So we need to rotate mesh 90 degrees?
+            // Yes.
+            // If direction North/South: Box is wide (X), short (Y), thin (Z). Correct.
+            // If direction East/West: Box should be thin (X), short (Y), wide (Z).
+            // So Rotate Y 90 deg.
+
+            go.mesh = new THREE.Mesh(geo, mat);
+            // Position
+            go.mesh.position.set(worldPos.x + localX, worldPos.y + localY, worldPos.z + localZ);
+            // Rotation
             go.mesh.rotation.y = rotationY;
             go.mesh.castShadow = true;
             go.mesh.receiveShadow = true;
@@ -233,7 +292,7 @@ export class StairRenderer {
                 position: new CANNON.Vec3(go.mesh.position.x, go.mesh.position.y, go.mesh.position.z),
                 shape: shape,
             });
-            go.body.quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), rotationY);
+            go.body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rotationY);
 
             this.game.addGameObject(go);
         }
@@ -248,4 +307,3 @@ export class StairRenderer {
         ];
     }
 }
-

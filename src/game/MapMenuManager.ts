@@ -1,11 +1,17 @@
 import { Game } from '../engine/Game';
 import { LevelGenerator } from './LevelGenerator';
+import { MapBuilder } from './maps/MapBuilder';
+import { MapBuilderUI } from './maps/MapBuilderUI';
 
 export class MapMenuManager {
     private game: Game;
     private levelGen: LevelGenerator;
     private availableMaps: string[] = [];
     private currentMap: string = 'de_dust2';
+
+    // Map Builder
+    private mapBuilder: MapBuilder | null = null;
+    private mapBuilderUI: MapBuilderUI | null = null;
 
     constructor(game: Game, levelGen: LevelGenerator) {
         this.game = game;
@@ -19,7 +25,12 @@ export class MapMenuManager {
         this.availableMaps = [
             'de_dust2',
             'cs_dunder',
-            'example_map'
+            'example_map',
+            'complex_dm',
+            'tower_voxel',
+            // TextMap format maps
+            'tower',
+            'warehouse'
         ];
     }
 
@@ -35,11 +46,11 @@ export class MapMenuManager {
         try {
             // Clear existing game objects (except player)
             this.clearMap();
-            
+
             // Load new map
             await this.levelGen.loadMap(mapName);
             this.currentMap = mapName;
-            
+
             return true;
         } catch (error) {
             console.error(`Failed to load map ${mapName}:`, error);
@@ -113,14 +124,14 @@ export class MapMenuManager {
             mapButton.style.border = '2px solid ' + (mapName === this.currentMap ? '#6ab0f3' : '#444');
             mapButton.style.borderRadius = '5px';
             mapButton.style.transition = 'all 0.2s';
-            
+
             mapButton.addEventListener('mouseenter', () => {
                 if (mapName !== this.currentMap) {
                     mapButton.style.background = '#3a3a3a';
                     mapButton.style.borderColor = '#666';
                 }
             });
-            
+
             mapButton.addEventListener('mouseleave', () => {
                 if (mapName !== this.currentMap) {
                     mapButton.style.background = '#2a2a2a';
@@ -140,7 +151,7 @@ export class MapMenuManager {
                 mapButton.disabled = true;
 
                 const success = await this.loadMap(mapName);
-                
+
                 if (success) {
                     // Update button styles
                     mapList.querySelectorAll('button').forEach(btn => {
@@ -150,7 +161,7 @@ export class MapMenuManager {
                     mapButton.style.background = '#4a90e2';
                     mapButton.style.borderColor = '#6ab0f3';
                     mapButton.textContent = this.formatMapName(mapName);
-                    
+
                     // Close menu and resume
                     setTimeout(() => {
                         this.hide();
@@ -197,6 +208,33 @@ export class MapMenuManager {
             this.game.togglePause();
         });
 
+        // Map Builder button
+        const mapBuilderButton = document.createElement('button');
+        mapBuilderButton.textContent = '🗺️ Map Builder';
+        mapBuilderButton.style.marginTop = '15px';
+        mapBuilderButton.style.padding = '12px 30px';
+        mapBuilderButton.style.fontSize = '16px';
+        mapBuilderButton.style.cursor = 'pointer';
+        mapBuilderButton.style.background = '#27ae60';
+        mapBuilderButton.style.color = 'white';
+        mapBuilderButton.style.border = '2px solid #2ecc71';
+        mapBuilderButton.style.borderRadius = '5px';
+        mapBuilderButton.style.transition = 'all 0.2s';
+
+        mapBuilderButton.addEventListener('mouseenter', () => {
+            mapBuilderButton.style.background = '#2ecc71';
+        });
+
+        mapBuilderButton.addEventListener('mouseleave', () => {
+            mapBuilderButton.style.background = '#27ae60';
+        });
+
+        mapBuilderButton.addEventListener('click', () => {
+            this.hide();
+            this.openMapBuilder();
+        });
+
+        container.appendChild(mapBuilderButton);
         container.appendChild(cancelButton);
 
         return container;
@@ -223,5 +261,24 @@ export class MapMenuManager {
             menu.style.display = 'none';
         }
     }
-}
 
+    /**
+     * Open the Map Builder tool.
+     */
+    public openMapBuilder(): void {
+        if (!this.mapBuilder) {
+            this.mapBuilder = new MapBuilder(30, 30);
+        }
+        if (!this.mapBuilderUI) {
+            this.mapBuilderUI = new MapBuilderUI(this.mapBuilder);
+        }
+        this.mapBuilderUI.show();
+    }
+
+    /**
+     * Get the Map Builder UI instance.
+     */
+    public getMapBuilderUI(): MapBuilderUI | null {
+        return this.mapBuilderUI;
+    }
+}

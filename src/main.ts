@@ -20,7 +20,7 @@ const levelGen = new LevelGenerator(game);
 const mapMenu = new MapMenuManager(game, levelGen);
 
 // Load default map
-const defaultMap = 'de_dust2';
+const defaultMap = 'killhouse';
 levelGen.loadMap(defaultMap).catch(() => {
     console.warn('Failed to load map, using random generation');
     levelGen.generate();

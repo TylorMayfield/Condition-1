@@ -55,8 +55,43 @@ export class WeaponSystem extends Weapon {
         const swayX = Math.sin(this.swayTime * swaySpeed) * swayAmount;
         const swayY = Math.abs(Math.cos(this.swayTime * swaySpeed * 2)) * swayAmount; // Unilateral bob
 
-        // Reload Offset
-        const reloadRotation = this.isReloading ? -Math.PI / 4 : 0; // Tilt down 45 deg
+        // Reload Animation
+        let reloadRotation = 0;
+        let reloadPositionOffset = new THREE.Vector3(0, 0, 0);
+        
+        if (this.isReloading) {
+            const progress = this.getReloadProgress();
+            
+            // Easing function for smooth animation (ease-in-out)
+            const easeInOut = (t: number): number => {
+                return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+            };
+            
+            const easedProgress = easeInOut(progress);
+            
+            // Stage 1: Tilt down and pull back (0-40% of reload)
+            if (progress < 0.4) {
+                const stageProgress = progress / 0.4;
+                const easedStage = easeInOut(stageProgress);
+                reloadRotation = -Math.PI / 3 * easedStage; // Tilt down 60 degrees
+                reloadPositionOffset.z = 0.15 * easedStage; // Pull back
+                reloadPositionOffset.y = -0.1 * easedStage; // Slight downward movement
+            }
+            // Stage 2: Hold position (40-60% of reload)
+            else if (progress < 0.6) {
+                reloadRotation = -Math.PI / 3;
+                reloadPositionOffset.z = 0.15;
+                reloadPositionOffset.y = -0.1;
+            }
+            // Stage 3: Return to normal position (60-100% of reload)
+            else {
+                const stageProgress = (progress - 0.6) / 0.4;
+                const easedStage = easeInOut(stageProgress);
+                reloadRotation = -Math.PI / 3 * (1 - easedStage);
+                reloadPositionOffset.z = 0.15 * (1 - easedStage);
+                reloadPositionOffset.y = -0.1 * (1 - easedStage);
+            }
+        }
 
         // Sync weapon to camera with offsets
         this.mesh.position.copy(camera.position);
@@ -67,6 +102,9 @@ export class WeaponSystem extends Weapon {
         offset.x += swayX;
         offset.y += swayY;
         offset.z += this.currentRecoil.y * 0.1; // Kickback
+        
+        // Apply Reload Position Offset
+        offset.add(reloadPositionOffset);
 
         // Apply to local
         this.mesh.translateX(offset.x);

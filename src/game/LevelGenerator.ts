@@ -8,6 +8,9 @@ import { TileMap } from './maps/TileMap';
 import type { TileMapDefinition } from './maps/TileMap';
 import { MapRenderer } from './maps/MapRenderer';
 import { SquadMember } from './SquadMember';
+import { TextMap } from './maps/TextMap';
+import { TextMapParser } from './maps/TextMapParser';
+import { TextMapRenderer } from './maps/TextMapRenderer';
 
 export class LevelGenerator {
     private game: Game;
@@ -18,23 +21,162 @@ export class LevelGenerator {
 
     public async loadMap(mapName: string): Promise<void> {
         try {
+            // Check if this is a TextMap file (.textmap extension)
+            if (mapName.endsWith('.textmap') || await this.isTextMap(mapName)) {
+                await this.loadTextMap(mapName);
+                return;
+            }
+
             // Load map JSON file using dynamic import (Vite handles this)
             const mapModule = await import(`./maps/${mapName}.json`);
-            const mapData: TileMapDefinition = mapModule.default || mapModule;
-            
-            // Create tile map and renderer
-            const tileMap = new TileMap(this.game, mapData);
-            const renderer = new MapRenderer(this.game, tileMap);
-            
-            // Render the map
-            renderer.render();
-            
-            // Spawn entities at spawn points
-            this.spawnFromTileMap(tileMap);
+            const mapData = mapModule.default || mapModule;
+
+            // Determine map type
+            if ('blocks' in mapData) {
+                // Voxel Map
+                const { VoxelMap } = await import('./maps/VoxelMap');
+                const { VoxelMapRenderer } = await import('./maps/VoxelMapRenderer');
+
+                const voxelMap = new VoxelMap(this.game, mapData);
+                const renderer = new VoxelMapRenderer(this.game, voxelMap);
+                renderer.render();
+
+                this.spawnFromVoxelMap(voxelMap);
+            } else {
+                // Tile Map (Legacy)
+                const mapDataTyped: TileMapDefinition = mapData;
+                const tileMap = new TileMap(this.game, mapDataTyped);
+                const renderer = new MapRenderer(this.game, tileMap);
+                renderer.render();
+
+                this.spawnFromTileMap(tileMap);
+            }
         } catch (error) {
             console.error(`Failed to load map ${mapName}:`, error);
             // Fallback to random generation
             this.generate();
+        }
+    }
+
+    /**
+     * Check if a map is a TextMap by trying to load the .textmap file.
+     */
+    private async isTextMap(mapName: string): Promise<boolean> {
+        try {
+            // Try to import the textmap file
+            await import(`./maps/${mapName}.textmap?raw`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Load and render a TextMap file.
+     */
+    private async loadTextMap(mapName: string): Promise<void> {
+        const fileName = mapName.endsWith('.textmap') ? mapName : `${mapName}.textmap`;
+        const nameWithoutExt = fileName.replace('.textmap', '');
+
+        try {
+            // Import the text file as raw string (Vite handles this)
+            const textModule = await import(`./maps/${nameWithoutExt}.textmap?raw`);
+            const content = textModule.default || textModule;
+
+            // Parse the TextMap
+            const mapData = TextMapParser.parse(content);
+            const textMap = new TextMap(this.game, mapData);
+
+            // Render the map
+            const renderer = new TextMapRenderer(this.game, textMap);
+            renderer.render();
+
+            // Spawn entities
+            this.spawnFromTextMap(textMap);
+
+            console.log(`Loaded TextMap: ${mapData.name} v${mapData.version}`);
+        } catch (error) {
+            console.error(`Failed to load TextMap ${fileName}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Spawn entities from a TextMap.
+     */
+    private spawnFromTextMap(textMap: TextMap): void {
+        const spawnPoints = textMap.getSpawnPoints();
+        if (spawnPoints.length === 0) return;
+
+        const squadSpawns: { position: THREE.Vector3; name?: string }[] = [];
+
+        for (const spawn of spawnPoints) {
+            // Calculate body center height (0.8m above floor)
+            const spawnPos = spawn.position.clone();
+            spawnPos.y += 0.8; // Body center offset for 1.6m tall entity
+
+            switch (spawn.type) {
+                case 'player_spawn':
+                    if (this.game.player && this.game.player.body) {
+                        this.game.player.body.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                        console.log(`Player spawned at: ${spawnPos.x}, ${spawnPos.y}, ${spawnPos.z}`);
+                    }
+                    break;
+                case 'enemy_spawn':
+                    const enemy = new Enemy(this.game, spawnPos);
+                    this.game.addGameObject(enemy);
+                    break;
+                case 'squad_spawn':
+                    squadSpawns.push({ position: spawnPos, name: spawn.name });
+                    break;
+            }
+        }
+
+        // Spawn squad members
+        if (squadSpawns.length > 0 && this.game.squadManager) {
+            // Clear existing squad members
+            this.game.squadManager.members.forEach(member => {
+                member.dispose();
+            });
+            this.game.squadManager.members = [];
+
+            // Spawn new squad members
+            squadSpawns.forEach((spawn, index) => {
+                const name = spawn.name || `Squad-${index + 1}`;
+                const member = new SquadMember(this.game, spawn.position, name);
+                this.game.addGameObject(member);
+                this.game.squadManager.members.push(member);
+            });
+        }
+    }
+
+    private spawnFromVoxelMap(voxelMap: any) {
+        const spawnPoints = voxelMap.getSpawnPoints();
+        if (spawnPoints.length === 0) return;
+
+        const squadSpawns: THREE.Vector3[] = [];
+        const scale = voxelMap.scale;
+
+        for (const spawn of spawnPoints) {
+            // Spawn point y is in grid coords, convert to world: floor surface + body center offset
+            const worldPos = new THREE.Vector3(
+                spawn.x * scale,
+                (spawn.y + 1) * scale + 0.8, // +1 to stand ON the block, +0.8 for body center
+                spawn.z * scale
+            );
+
+            switch (spawn.type) {
+                case 'player':
+                    if (this.game.player && this.game.player.body) {
+                        this.game.player.body.position.set(worldPos.x, worldPos.y, worldPos.z);
+                    }
+                    break;
+                case 'enemy':
+                    const enemy = new Enemy(this.game, worldPos);
+                    this.game.addGameObject(enemy);
+                    break;
+                // Add squad handling if needed
+            }
         }
     }
 
@@ -53,7 +195,7 @@ export class LevelGenerator {
                         // So adjust: floor + 0.8 - 0.3 = floor + 0.5
                         const playerY = spawn.position.y - 0.3;
                         this.game.player.body.position.set(
-                            spawn.position.x, 
+                            spawn.position.x,
                             Math.max(0.5, playerY), // Ensure minimum height so player doesn't fall through
                             spawn.position.z
                         );
