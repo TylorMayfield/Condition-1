@@ -140,7 +140,14 @@ export class VmfWorldBuilder {
                 // We want physics if solidity is 0 (Solid) or undefined (default solid).
                 const isNonSolidBrush = entity.classname === 'func_brush' && entity.properties['solidity'] === '1';
 
-                const enablePhysicsForThisEntity = !isIllusionary && !isNonSolidBrush;
+                // Triggers and Zones MUST be non-solid for physics
+                const isTrigger = entity.classname.startsWith('trigger_') ||
+                    entity.classname === 'func_buyzone' ||
+                    entity.classname === 'func_bomb_target' ||
+                    entity.classname === 'func_hostage_rescue' ||
+                    entity.classname === 'func_water'; // Water is non-solid for standard RigidBody collision (handled differently)
+
+                const enablePhysicsForThisEntity = !isIllusionary && !isNonSolidBrush && !isTrigger;
 
                 for (const solid of entity.solids) {
                     const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true, ALWAYS_IGNORED);
@@ -317,14 +324,14 @@ export class VmfWorldBuilder {
         let mat: THREE.Material;
 
         if (matchedType === 'glass') {
-            mat = new THREE.MeshPhysicalMaterial({
-                color: 0x88ccff,
+            // Simplified Glass (Standard Material)
+            mat = new THREE.MeshStandardMaterial({
+                color: 0x66aaff, // Blue-ish tint
                 transparent: true,
-                opacity: 0.4,
-                roughness: 0.1,
-                metalness: 0.1,
-                transmission: 0.9,
-                thickness: 0.1
+                opacity: 0.3,
+                roughness: 0.2,
+                metalness: 0.8, // Reflective
+                side: THREE.DoubleSide // Important for glass panes
             });
         } else {
             // Generate texture
@@ -339,7 +346,8 @@ export class VmfWorldBuilder {
             mat = new THREE.MeshStandardMaterial({
                 map: tex,
                 color: 0xffffff,
-                roughness: 0.8
+                roughness: 0.8,
+                side: THREE.FrontSide // Standard for solids
             });
         }
 

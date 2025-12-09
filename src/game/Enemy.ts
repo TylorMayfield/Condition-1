@@ -65,16 +65,19 @@ export class Enemy extends GameObject {
         this.game.scene.add(this.mesh);
 
         // Physics - realistic human height (~1.6m total, center at ~0.8m)
-        const shape = new CANNON.Box(new CANNON.Vec3(0.25, 0.8, 0.25)); // 1.6m tall total
+        // Use Sphere for better stability on Trimesh floors (Box can fall through)
+        const radius = 0.4; // 0.8m diameter
+        const shape = new CANNON.Sphere(radius);
         this.body = new CANNON.Body({
-            mass: 5, // Heavier
-            position: new CANNON.Vec3(position.x, position.y, position.z), // Spawn position should be at body center height (floor + 0.8m)
+            mass: 5,
+            position: new CANNON.Vec3(position.x, position.y, position.z),
             shape: shape,
             fixedRotation: true,
             material: new CANNON.Material({ friction: 0, restitution: 0 })
         });
         this.body.linearDamping = 0.9; // Drag
-        this.game.world.addBody(this.body);
+        this.body.linearDamping = 0.9; // Drag
+        // this.game.world.addBody(this.body); // Handled by Game.addGameObject
 
         // AI
         const p = Math.floor(Math.random() * 3) as AIPersonality;

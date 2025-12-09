@@ -64,6 +64,13 @@ export class LevelGenerator {
     }
 
     /**
+     * Get Entity Spawner
+     */
+    public getEntitySpawner(): EntitySpawner {
+        return this.entitySpawner;
+    }
+
+    /**
      * Clear the current level (meshes, physics, entities)
      */
     public clearLevel() {
@@ -75,9 +82,14 @@ export class LevelGenerator {
         for (let i = this.game.scene.children.length - 1; i >= 0; i--) {
             const child = this.game.scene.children[i];
 
-            // Do not remove Camera or Player Mesh
+            // Do not remove Camera or Player Mesh specifically
             if (child instanceof THREE.Camera) continue;
             if (player && player.mesh && child === player.mesh) continue;
+
+            // Do not remove Weapon Mesh
+            const weapon = player?.getCurrentWeapon();
+            if (weapon && weapon.mesh && child === weapon.mesh) continue;
+
             // Also check if child is player's flashlight target/light if they are separate?
             // Flashlight is attached to camera usually.
 

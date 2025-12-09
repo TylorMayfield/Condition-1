@@ -42,6 +42,8 @@ export class Game {
     public skyboxManager: SkyboxManager;
     public postProcessingManager?: PostProcessingManager;
     public boidSystem?: BoidSystem;
+    // @ts-ignore
+    public levelGenerator: any; // Type as any to avoid circular import with LevelGenerator
 
     constructor() {
         // Init Renderer

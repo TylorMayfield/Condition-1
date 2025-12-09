@@ -82,52 +82,75 @@ export class VmfMapLoader {
     private spawnEntities(entities: any[]) {
         console.log(`Processing ${entities.length} VMF entities...`);
 
-        // Debug: Log counts of potential spawn entities
-        const spawns = entities.filter(e =>
-            (e.classname && e.classname.includes('info_player')) ||
-            (e.classname && e.classname.includes('info_deathmatch'))
-        );
-        console.log(`Found ${spawns.length} potential spawn entities:`, spawns.map(e => e.classname));
+        // Helper to parse origin string "x y z"
+        const parseOrigin = (originStr: string): THREE.Vector3 | null => {
+            if (!originStr) return null;
+            const parts = originStr.split(' ').map(parseFloat);
+            if (parts.length !== 3) return null;
 
-        // Find player start (Priority: Start -> CT -> T -> Deathmatch)
-        const playerStart = entities.find(e => e.classname === 'info_player_start') ||
-            entities.find(e => e.classname === 'info_player_counterterrorist') ||
-            entities.find(e => e.classname === 'info_player_terrorist') ||
-            entities.find(e => e.classname === 'info_player_deathmatch');
+            // Swap Y and Z for ThreeJS (Y-up), and Scale
+            const x = parts[0] * 0.02;
+            const y = parts[2] * 0.02; // Z becomes Y
+            const z = -parts[1] * 0.02; // Y becomes -Z
 
-        if (playerStart) {
-            // Parse origin "x y z"
-            if (!playerStart.properties || !playerStart.properties.origin) {
-                console.warn('Spawn entity missing origin property', playerStart);
-                return;
+            // Lift slightly to avoid floor collision clipping
+            // +1.0 places center at Y=1.0. Feet at 0.2 (safe above floor). Head at 1.8 (safe below ceiling).
+            return new THREE.Vector3(x, y + 1.0, z);
+        };
+
+        const tSpawns: THREE.Vector3[] = [];
+        const ctSpawns: THREE.Vector3[] = [];
+        const dmSpawns: THREE.Vector3[] = [];
+
+        // Collect Spawns
+        for (const entity of entities) {
+            if (!entity.properties || !entity.properties.origin) continue;
+
+            const pos = parseOrigin(entity.properties.origin);
+            if (!pos) continue;
+
+            if (entity.classname === 'info_player_terrorist') {
+                tSpawns.push(pos);
+            } else if (entity.classname === 'info_player_counterterrorist') {
+                ctSpawns.push(pos);
+            } else if (entity.classname === 'info_player_deathmatch') {
+                dmSpawns.push(pos);
+            } else if (entity.classname === 'info_player_start') {
+                // Generic start, treat as CT (Player) usually
+                ctSpawns.unshift(pos); // Priority
             }
-
-            const parts = playerStart.properties.origin.split(' ').map(parseFloat);
-            if (parts.length === 3) {
-                // Swap Y and Z for ThreeJS (Y-up), and Scale
-                const x = parts[0] * 0.02;
-                const y = parts[2] * 0.02; // Z becomes Y
-                const z = -parts[1] * 0.02; // Y becomes -Z
-
-                // Lift slightly to avoid floor collision clipping at spawn
-                const spawnPos = new THREE.Vector3(x, y + 2, z);
-
-                console.log(`Spawning player at ${playerStart.classname} origin: ${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)}`);
-
-                if (this.game.player) {
-                    this.game.player.moveTo(spawnPos);
-                    // Reset velocity
-                    if (this.game.player.body) {
-                        this.game.player.body.velocity.set(0, 0, 0);
-                        this.game.player.body.angularVelocity.set(0, 0, 0);
-                    }
-                }
-            } else {
-                console.warn('Invalid origin format for spawn:', playerStart.properties.origin);
-            }
-        } else {
-            console.warn('No info_player_start found in VMF! Using default.');
         }
+
+        console.log(`Examples found: T=${tSpawns.length}, CT=${ctSpawns.length}`);
+
+        // Spawn Strategy: 
+        // CT Spots -> Player + Squad
+        // T Spots -> Enemies
+
+        // 1. Player Spawn (First CT or fallback)
+        let playerPos = ctSpawns.length > 0 ? ctSpawns.shift() : (dmSpawns.length > 0 ? dmSpawns[0] : null);
+
+        // If still no spawn, try T spawn as last resort (or default)
+        if (!playerPos && tSpawns.length > 0) playerPos = tSpawns.shift();
+
+        if (playerPos) {
+            console.log(`Spawning Player at ${playerPos.x.toFixed(2)}, ${playerPos.y.toFixed(2)}, ${playerPos.z.toFixed(2)}`);
+            this.game.levelGenerator.spawnPlayer(playerPos);
+        } else {
+            console.warn('No spawn points found! Using default.');
+            this.game.levelGenerator.spawnPlayer(new THREE.Vector3(0, 5, 0));
+        }
+
+        // 2. Enemy Spawns (Terrorists) - Limit to 3
+        const limitedTSpawns = tSpawns.slice(0, 3);
+        const eleEnemySpawns = limitedTSpawns.map(pos => ({ position: pos, name: 'Terrorist' }));
+        this.game.levelGenerator.getEntitySpawner().spawnEnemies(eleEnemySpawns);
+
+        // 3. Squad Spawns (Remaining CT spots) - Limit to 3 (excluding player)
+        // Note: ctSpawns already had one shifted off for the player if available
+        const limitedCTSpawns = ctSpawns.slice(0, 3);
+        const eleFriendlySpawns = limitedCTSpawns.map(pos => ({ position: pos, name: 'Counter-Terrorist' }));
+        this.game.levelGenerator.getEntitySpawner().spawnFriendlies(eleFriendlySpawns);
     }
 
     public static async check(mapName: string): Promise<boolean> {
