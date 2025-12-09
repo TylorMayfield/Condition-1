@@ -5,6 +5,7 @@ import { GameObject } from '../../engine/GameObject';
 import { BrushMap } from './BrushMap';
 import type { Brush, BrushMaterialType, BrushSurface } from './BrushMap';
 import { DestructibleWall } from '../components/DestructibleWall';
+import { DevTextureGenerator } from '../utils/DevTextureGenerator';
 
 /**
  * Material colors for rendering.
@@ -19,7 +20,10 @@ const MATERIAL_COLORS: Record<BrushMaterialType, number> = {
     stone: 0x555555,
     crate: 0xcda434,
     glass: 0x88ccff,
+    carpet: 0x800020, // Burgundy
 };
+
+
 
 /**
  * Renderer for BrushMap format.
@@ -41,8 +45,24 @@ export class BrushMapRenderer {
      */
     private initMaterials(): void {
         for (const [name, color] of Object.entries(MATERIAL_COLORS)) {
+            // Generate dev texture
+            const texture = DevTextureGenerator.getTexture(name, {
+                color: color,
+                text: name.toUpperCase(),
+                width: 512,
+                height: 512,
+                gridSize: 64
+            });
+
+            // Adjust texture scale
+            // We want roughly 1 unit = 1 grid cell?
+            // Texture is 512x512, grid is 64. So 8x8 cells.
+            // If we map this to a 1x1x1 cube, we get 8 cells per unit. That's dense.
+            // We likely want to scale the texture repeat in renderBrush.
+
             const mat = new THREE.MeshStandardMaterial({
-                color,
+                map: texture,
+                color: 0xffffff, // Tint white so texture color shows
                 roughness: 0.7,
                 metalness: name === 'metal' ? 0.8 : 0.1,
             });
@@ -50,6 +70,7 @@ export class BrushMapRenderer {
         }
 
         // Glass material (transparent) - improved appearance
+        // Glass usually doesn't need a dev grid unless requested, but let's keep it clean
         const glassMat = new THREE.MeshPhysicalMaterial({
             color: 0xaaddff,
             transparent: true,
@@ -113,8 +134,25 @@ export class BrushMapRenderer {
         // Create geometry
         const geo = new THREE.BoxGeometry(worldWidth, worldHeight, worldDepth);
 
+        // Calculate UVs to tile the texture based on world size
+        const uvScale = 0.25; // 1 repeat per 4 units.
+
         // Get or create material
-        const mat = this.getMaterial(brush);
+        let mat = this.getMaterial(brush);
+
+        // Clone for tiling if it has a map
+        if ((mat as THREE.MeshStandardMaterial).map) {
+            mat = mat.clone();
+
+            // Right (x+) -> Left Face in BoxGeometry terms? 
+            // 0: +x, 1: -x, 2: +y, 3: -y, 4: +z, 5: -z
+            this.scaleUVs(geo, 0, worldDepth, worldHeight, uvScale); // Right
+            this.scaleUVs(geo, 1, worldDepth, worldHeight, uvScale); // Left
+            this.scaleUVs(geo, 2, worldWidth, worldDepth, uvScale);  // Top
+            this.scaleUVs(geo, 3, worldWidth, worldDepth, uvScale);  // Bottom
+            this.scaleUVs(geo, 4, worldWidth, worldHeight, uvScale); // Front
+            this.scaleUVs(geo, 5, worldWidth, worldHeight, uvScale); // Back
+        }
 
         // Create mesh
         go.mesh = new THREE.Mesh(geo, mat);
@@ -173,10 +211,22 @@ export class BrushMapRenderer {
         const isTransparent = surface.transparent ?? (materialType === 'glass');
         const opacity = surface.opacity ?? (materialType === 'glass' ? 0.4 : 1.0);
 
+        // Generate Basic Dev Texture
+        // We reuse the cached texture for base, but we might want custom for surface?
+        // Since surface properties don't change texture CONTENT usually, just physics/render params.
+        const texture = DevTextureGenerator.getTexture(materialType, {
+            color: baseColor,
+            text: materialType.toUpperCase(),
+            width: 512,
+            height: 512,
+            gridSize: 64
+        });
+
         // Use MeshPhysicalMaterial for transparent/glass materials for better appearance
         if (isTransparent || materialType === 'glass') {
             const mat = new THREE.MeshPhysicalMaterial({
-                color: baseColor,
+                map: texture,
+                color: 0xffffff,
                 roughness: surface.roughness,
                 metalness: surface.metalness ?? 0.0,
                 transparent: true,
@@ -192,13 +242,11 @@ export class BrushMapRenderer {
 
         // Standard material for opaque surfaces
         const mat = new THREE.MeshStandardMaterial({
-            color: baseColor,
+            map: texture,
+            color: 0xffffff,
             roughness: surface.roughness,
             metalness: surface.metalness ?? 0.1,
         });
-
-        // Note: Actual bumpmap/normal map blending would require texture loading
-        // This is a simplified version that uses roughness to simulate surface detail
 
         return mat;
     }
@@ -529,6 +577,26 @@ export class BrushMapRenderer {
         }
 
         return intersections;
+    }
+    /**
+     * Helper to scale UVs for a specific face index of a BoxGeometry.
+     * Assumes 6 faces, 4 vertices per face (24 verts total).
+     */
+    private scaleUVs(geo: THREE.BoxGeometry, faceIndex: number, width: number, height: number, scale: number) {
+        const uv = geo.attributes.uv;
+        const offset = faceIndex * 4; // 4 verts per face
+
+        for (let i = 0; i < 4; i++) {
+            const u = uv.getX(offset + i);
+            const v = uv.getY(offset + i);
+
+            // Scale UVs
+            // Default is 0..1. We mult by dimension * scale
+            // e.g. 10m wall * 0.25 = 2.5 repeats
+            uv.setXY(offset + i, u * width * scale, v * height * scale);
+        }
+
+        uv.needsUpdate = true;
     }
 }
 

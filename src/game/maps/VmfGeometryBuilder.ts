@@ -31,50 +31,43 @@ export class VmfGeometryBuilder {
      * @param filterMaterials If true, excludes faces with ignored materials.
      * @param ignoredMaterials List of material names (substring) to ignore. Defaults to standard tools.
      */
-    public static buildSolidGeometry(solid: VmfSolid, filterMaterials: boolean = true, ignoredMaterials: string[] = VmfGeometryBuilder.DEFAULT_IGNORED_MATERIALS): THREE.BufferGeometry {
+    /**
+     * Build geometry for a single convex solid.
+     * Uses plane intersection method to find all valid vertices.
+     * @param filterMaterials If true, excludes faces with ignored materials.
+     * @param ignoredMaterials List of material names (substring) to ignore. Defaults to standard tools.
+     */
+    public static buildSolidGeometry(solid: VmfSolid, filterMaterials: boolean = true, ignoredMaterials: string[] = VmfGeometryBuilder.DEFAULT_IGNORED_MATERIALS): Array<{ material: string, geometry: THREE.BufferGeometry }> {
         const vertices: THREE.Vector3[] = [];
         const sides = solid.sides;
+        const results: Array<{ material: string, geometry: THREE.BufferGeometry }> = [];
 
         // 1. Find all vertices by intersecting every triplet of planes
-        // This is O(N^3) but N is small (usually 6 sides for a box).
-        // Limit logs
-        const debug = Math.random() < 0.01; // Sample 1%
-
         for (let i = 0; i < sides.length - 2; i++) {
             for (let j = i + 1; j < sides.length - 1; j++) {
                 for (let k = j + 1; k < sides.length; k++) {
-                    const p1 = sides[i].plane;
-                    const p2 = sides[j].plane;
-                    const p3 = sides[k].plane;
-
-                    const intersection = this.getIntersection(p1, p2, p3);
-                    if (intersection) {
-                        if (this.isPointInsideSolid(intersection, sides)) {
-                            vertices.push(intersection);
-                        }
+                    const intersection = this.getIntersection(sides[i].plane, sides[j].plane, sides[k].plane);
+                    if (intersection && this.isPointInsideSolid(intersection, sides)) {
+                        vertices.push(intersection);
                     }
                 }
             }
         }
 
-        // Remove duplicates (floating point tolerance)
+        // Remove duplicates
         const uniqueVertices = this.mergeVertices(vertices);
         if (uniqueVertices.length < 4) {
-            if (sides.length >= 4 && debug) {
-                console.warn(`VmfGeometryBuilder: Solid with ${sides.length} sides produced only ${uniqueVertices.length} vertices. (Input vertices: ${vertices.length})`);
-            }
-            return new THREE.BufferGeometry();
+            return [];
         }
 
-        // 2. Build Faces (Polygon winding)
-        // For each side plane, find vertices that lie on it
-        const finalVertices: number[] = [];
-        const finalUVs: number[] = [];
+        // 2. Build Faces Grouped by Material
+        const materialGroups = new Map<string, { vertices: number[], uvs: number[] }>();
 
         for (const side of sides) {
             // Check if material should be skipped
-            // ALWAYS allow sides with displacement info (render base face)
-            if (filterMaterials && !side.dispinfo && side.material && ignoredMaterials.some(m => side.material.toUpperCase().includes(m))) {
+            let matName = side.material.toUpperCase();
+
+            if (filterMaterials && !side.dispinfo && ignoredMaterials.some(m => matName.includes(m))) {
                 continue;
             }
 
@@ -84,8 +77,13 @@ export class VmfGeometryBuilder {
             );
 
             if (onPlane.length >= 3) {
+                // Initialize group if needed
+                if (!materialGroups.has(matName)) {
+                    materialGroups.set(matName, { vertices: [], uvs: [] });
+                }
+                const group = materialGroups.get(matName)!;
+
                 // Sort vertices to form a convex polygon
-                // Project to 2D on the plane to sort by angle roughly around center
                 this.sortVerticesCCW(onPlane, side.plane.normal);
 
                 // Triangulate fan
@@ -96,32 +94,34 @@ export class VmfGeometryBuilder {
                     const v3 = onPlane[k + 1];
 
                     // Add to geometry
-                    finalVertices.push(v1.x, v1.y, v1.z);
-                    finalVertices.push(v2.x, v2.y, v2.z);
-                    finalVertices.push(v3.x, v3.y, v3.z);
+                    group.vertices.push(v1.x, v1.y, v1.z);
+                    group.vertices.push(v2.x, v2.y, v2.z);
+                    group.vertices.push(v3.x, v3.y, v3.z);
 
                     // Basic placeholder UVs (planar mapping)
-                    this.pushUV(finalUVs, v1, side);
-                    this.pushUV(finalUVs, v2, side);
-                    this.pushUV(finalUVs, v3, side);
+                    this.pushUV(group.uvs, v1, side);
+                    this.pushUV(group.uvs, v2, side);
+                    this.pushUV(group.uvs, v3, side);
                 }
             }
         }
 
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(finalVertices, 3));
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(finalUVs, 2));
-        geometry.computeVertexNormals();
+        // 3. Create Geometries from groups
+        for (const [material, data] of materialGroups) {
+            if (data.vertices.length > 0) {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.vertices, 3));
+                geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+                geometry.computeVertexNormals();
 
-        // Source Engine Coordinate Transform
-        // Source: Z-up. Three.js: Y-up.
-        // Rotation: Rotate -90 deg around X axis.
-        geometry.rotateX(-Math.PI / 2);
+                // Source Engine Coordinate Transform
+                geometry.rotateX(-Math.PI / 2);
 
-        // Scaling logic moved to LevelGenerator to allow for global config
-        // Default returns unscaled (Raw VMF Units, rotated)
+                results.push({ material, geometry });
+            }
+        }
 
-        return geometry;
+        return results;
     }
 
     private static getIntersection(p1: THREE.Plane, p2: THREE.Plane, p3: THREE.Plane): THREE.Vector3 | null {

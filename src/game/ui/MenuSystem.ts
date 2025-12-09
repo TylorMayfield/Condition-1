@@ -14,7 +14,6 @@ export class MenuSystem {
     // State
     private isVisible: boolean = false;
     private isGameStarted: boolean = false;
-    private activePanel: string = '';
 
     private availableMaps = [
         'killhouse',
@@ -190,9 +189,11 @@ export class MenuSystem {
                 </div>
             `;
 
-            card.addEventListener('click', () => {
+            card.onclick = (e) => {
+                e.stopPropagation(); // Prevent bubbling issues
+                console.log(`Map Clicked: ${map}`);
                 this.loadMap(map);
-            });
+            };
 
             grid.appendChild(card);
         });
@@ -230,12 +231,78 @@ export class MenuSystem {
         console.log(`Loading map: ${mapName}`);
 
         if ((this.game as any).levelGenerator) {
+            // Show loading
+            this.showLoading();
+
             const lg = (this.game as any).levelGenerator;
             await lg.loadMap(mapName);
-            this.hide();
+
+            // Show Ready State (Click to Start)
+            this.showReadyToStart();
         } else {
             console.error("LevelGenerator not found on game instance");
         }
+    }
+
+    private showLoading() {
+        const loadingScreen = document.createElement('div');
+        loadingScreen.id = 'loading-screen';
+        Object.assign(loadingScreen.style, {
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0,0,0,0.9)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            color: 'white',
+            fontSize: '32px',
+            zIndex: '2000'
+        });
+        loadingScreen.textContent = 'LOADING...';
+        this.container.appendChild(loadingScreen);
+    }
+
+    private showReadyToStart() {
+        // Find or create loading screen
+        let loadingScreen = document.getElementById('loading-screen');
+        if (!loadingScreen) {
+            this.showLoading();
+            loadingScreen = document.getElementById('loading-screen')!;
+        }
+
+        loadingScreen.innerHTML = '';
+
+        const btn = document.createElement('button');
+        btn.textContent = 'CLICK TO DEPLOY';
+        Object.assign(btn.style, {
+            padding: '20px 40px',
+            fontSize: '24px',
+            background: '#22c55e',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            textTransform: 'uppercase',
+            boxShadow: '0 0 20px rgba(34, 197, 94, 0.5)'
+        });
+
+        btn.addEventListener('mouseenter', () => btn.style.transform = 'scale(1.05)');
+        btn.addEventListener('mouseleave', () => btn.style.transform = 'scale(1)');
+        btn.style.transition = 'transform 0.2s';
+
+        btn.addEventListener('click', () => {
+            // Remove loading screen
+            loadingScreen?.remove();
+
+            // Hide Menu and Lock Cursor
+            this.hide();
+        });
+
+        loadingScreen.appendChild(btn);
     }
 
     // Set level generator reference

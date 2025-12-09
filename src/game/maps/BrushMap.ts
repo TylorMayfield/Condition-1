@@ -19,6 +19,7 @@ export const BrushMaterial = {
     STONE: 'stone',
     CRATE: 'crate',
     GLASS: 'glass',
+    CARPET: 'carpet',
 } as const;
 
 export type BrushMaterialType = typeof BrushMaterial[keyof typeof BrushMaterial];
@@ -103,7 +104,6 @@ export interface BrushMapDefinition {
  * BrushMap class - holds parsed map data and provides utility methods.
  */
 export class BrushMap {
-    private game: Game;
     private mapData: BrushMapDefinition;
     public scale: number;
 
@@ -111,7 +111,6 @@ export class BrushMap {
     private brushIndex: Map<string, Brush[]> = new Map();
 
     constructor(game: Game, mapData: BrushMapDefinition) {
-        this.game = game;
         this.mapData = mapData;
         this.scale = mapData.scale || 2;
 
