@@ -27,6 +27,7 @@
   "dependencies": {
     "@types/three": "^0.181.0",
     "cannon-es": "^0.20.0",
+    "electron-squirrel-startup": "^1.0.1",
     "three": "^0.181.2",
     "vitest": "^4.0.15"
   }
