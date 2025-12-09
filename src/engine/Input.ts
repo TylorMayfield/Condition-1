@@ -33,6 +33,19 @@ export class Input {
         document.addEventListener('pointerlockchange', () => {
             this.isPointerLocked = !!document.pointerLockElement;
         });
+
+        // Auto-relock on click if we should be locked (handled by game state usually, but this helps)
+        document.addEventListener('click', () => {
+            if (!this.isPointerLocked && !this.isMenuVisible()) {
+                this.lockCursor();
+            }
+        });
+    }
+
+    private isMenuVisible(): boolean {
+        // HACK: Check if menu overlay is visible
+        const overlay = document.getElementById('menu-overlay');
+        return overlay?.style.display !== 'none';
     }
 
     public lockCursor() {

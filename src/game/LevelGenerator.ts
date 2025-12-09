@@ -68,14 +68,18 @@ export class LevelGenerator {
      */
     public clearLevel() {
         console.log('Clearing current level...');
+        const player = this.game.player;
 
         // 1. Clear Scene (Meshes & Lights)
         // Iterate backwards to remove safely
         for (let i = this.game.scene.children.length - 1; i >= 0; i--) {
             const child = this.game.scene.children[i];
 
-            // Do not remove Camera
+            // Do not remove Camera or Player Mesh
             if (child instanceof THREE.Camera) continue;
+            if (player && player.mesh && child === player.mesh) continue;
+            // Also check if child is player's flashlight target/light if they are separate?
+            // Flashlight is attached to camera usually.
 
             // Remove Meshes (Map chunks, Entities, Floor)
             if (child instanceof THREE.Mesh || child instanceof THREE.Group || child instanceof THREE.Light) {
@@ -97,17 +101,12 @@ export class LevelGenerator {
 
         // 2. Clear Physics World
         console.log(`Clearing ${this.game.world.bodies.length} physics bodies...`);
-        let safetyCounter = 0;
-        const MAX_BODIES = 10000;
-        while (this.game.world.bodies.length > 0) {
-            this.game.world.removeBody(this.game.world.bodies[0]);
-            safetyCounter++;
-            if (safetyCounter > MAX_BODIES) {
-                console.error("Infinite loop detected in physics cleanup! breaking.");
-                break;
-            }
+        const bodies = [...this.game.world.bodies];
+        for (const body of bodies) {
+            if (player && body === player.body) continue;
+            this.game.world.removeBody(body);
         }
-        console.log('Physics cleared.');
+        console.log('Physics cleared (Player preserved).');
 
         // 3. Clear GameObjects (Entities)
         // We will implement specific clear logic in Game or loop here
@@ -116,7 +115,10 @@ export class LevelGenerator {
         // Accessing private gameObjects via public getter doesn't help with removal
         // Let's assume we can clear them one by one
         const objects = [...this.game.getGameObjects()];
-        objects.forEach(go => this.game.removeGameObject(go));
+        objects.forEach(go => {
+            if (player && go === player) return; // Skip player
+            this.game.removeGameObject(go);
+        });
 
         // 4. Reset Managers
         // (Skybox, Weather, etc might need reset)

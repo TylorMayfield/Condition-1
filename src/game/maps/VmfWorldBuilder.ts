@@ -51,8 +51,9 @@ export class VmfWorldBuilder {
             'TOOLS/TOOLSFOG',
             'TOOLS/TOOLSLIGHT',
             'TOOLS/TOOLSAREAPORTAL',
-            'TOOLS/TOOLSOCCLUDER'
-            // Keep NODRAW, CLIP, SKIP, HINT - they are processed below
+            'TOOLS/TOOLSOCCLUDER',
+            'TOOLS/TOOLSSKIP',
+            'TOOLS/TOOLSHINT'
         ];
 
         const VISUAL_IGNORED = [

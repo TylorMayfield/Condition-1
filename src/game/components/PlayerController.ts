@@ -75,10 +75,12 @@ export class PlayerController {
             if (this.isNoclip) {
                 console.log('Noclip ENABLED');
                 body.type = CANNON.Body.KINEMATIC; // Disable gravity/forces
+                body.collisionResponse = false; // Disable solver response
                 body.velocity.set(0, 0, 0);
             } else {
                 console.log('Noclip DISABLED');
                 body.type = CANNON.Body.DYNAMIC; // Re-enable physics
+                body.collisionResponse = true; // Re-enable solver response
                 body.mass = 1; // Ensure mass is restored (Kinematic might ignore mass)
                 body.updateMassProperties(); // Recalculate inertia
                 body.velocity.set(0, 0, 0);

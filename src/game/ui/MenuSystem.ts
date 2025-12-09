@@ -299,6 +299,7 @@ export class MenuSystem {
             loadingScreen?.remove();
 
             // Hide Menu and Lock Cursor
+            // Must be called directly in click handler for pointer lock to work
             this.hide();
         });
 

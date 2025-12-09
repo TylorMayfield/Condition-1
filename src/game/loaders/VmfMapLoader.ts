@@ -80,9 +80,54 @@ export class VmfMapLoader {
     }
 
     private spawnEntities(entities: any[]) {
-        // Entity spawning will be handled by EntitySpawner in Phase 2
-        // For now, keep minimal logic here
         console.log(`Processing ${entities.length} VMF entities...`);
+
+        // Debug: Log counts of potential spawn entities
+        const spawns = entities.filter(e =>
+            (e.classname && e.classname.includes('info_player')) ||
+            (e.classname && e.classname.includes('info_deathmatch'))
+        );
+        console.log(`Found ${spawns.length} potential spawn entities:`, spawns.map(e => e.classname));
+
+        // Find player start (Priority: Start -> CT -> T -> Deathmatch)
+        const playerStart = entities.find(e => e.classname === 'info_player_start') ||
+            entities.find(e => e.classname === 'info_player_counterterrorist') ||
+            entities.find(e => e.classname === 'info_player_terrorist') ||
+            entities.find(e => e.classname === 'info_player_deathmatch');
+
+        if (playerStart) {
+            // Parse origin "x y z"
+            if (!playerStart.properties || !playerStart.properties.origin) {
+                console.warn('Spawn entity missing origin property', playerStart);
+                return;
+            }
+
+            const parts = playerStart.properties.origin.split(' ').map(parseFloat);
+            if (parts.length === 3) {
+                // Swap Y and Z for ThreeJS (Y-up), and Scale
+                const x = parts[0] * 0.02;
+                const y = parts[2] * 0.02; // Z becomes Y
+                const z = -parts[1] * 0.02; // Y becomes -Z
+
+                // Lift slightly to avoid floor collision clipping at spawn
+                const spawnPos = new THREE.Vector3(x, y + 2, z);
+
+                console.log(`Spawning player at ${playerStart.classname} origin: ${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)}`);
+
+                if (this.game.player) {
+                    this.game.player.moveTo(spawnPos);
+                    // Reset velocity
+                    if (this.game.player.body) {
+                        this.game.player.body.velocity.set(0, 0, 0);
+                        this.game.player.body.angularVelocity.set(0, 0, 0);
+                    }
+                }
+            } else {
+                console.warn('Invalid origin format for spawn:', playerStart.properties.origin);
+            }
+        } else {
+            console.warn('No info_player_start found in VMF! Using default.');
+        }
     }
 
     public static async check(mapName: string): Promise<boolean> {
