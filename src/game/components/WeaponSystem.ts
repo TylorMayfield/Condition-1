@@ -10,6 +10,11 @@ export class WeaponSystem extends Weapon {
     // Additional State
     private swayTime: number = 0;
     private basePosition: THREE.Vector3 = new THREE.Vector3(0.2, -0.2, -0.5);
+    private adsPosition: THREE.Vector3 = new THREE.Vector3(0, -0.1, -0.3); // Centered, closer
+    private isAiming: boolean = false;
+    private adsAmount: number = 0; // 0 = hip, 1 = ADS
+    private adsFOV: number = 50; // Zoomed FOV
+    private normalFOV: number = 75; // Normal FOV
 
     constructor(game: Game) {
         super(game, null); // Owner set later or ignored for Player singleton usage
@@ -23,20 +28,83 @@ export class WeaponSystem extends Weapon {
     }
 
     private createWeaponModel() {
-        // Simple "Gun"
-        const barrelGeo = new THREE.BoxGeometry(0.1, 0.1, 0.6);
-        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-        barrel.position.set(0.2, -0.2, -0.5);
+        // Realistic Rifle Model (Assault Rifle Style)
+        const gunmetalDark = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.4 });
+        const gunmetalLight = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.5 });
+        const blackPlastic = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.1, roughness: 0.8 });
+
+        // Receiver/Body (Main body)
+        const receiverGeo = new THREE.BoxGeometry(0.15, 0.15, 0.4);
+        const receiver = new THREE.Mesh(receiverGeo, gunmetalDark);
+        receiver.position.set(0.15, -0.2, -0.4);
+        receiver.castShadow = true;
+        this.mesh.add(receiver);
+
+        // Barrel (Long cylindrical barrel)
+        const barrelGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8);
+        const barrel = new THREE.Mesh(barrelGeo, gunmetalLight);
+        barrel.position.set(0.15, -0.15, -0.75);
+        barrel.rotation.x = Math.PI / 2;
+        barrel.castShadow = true;
         this.mesh.add(barrel);
+
+        // Stock (Rear shoulder rest)
+        const stockGeo = new THREE.BoxGeometry(0.12, 0.08, 0.25);
+        const stock = new THREE.Mesh(stockGeo, blackPlastic);
+        stock.position.set(0.15, -0.18, -0.05);
+        stock.castShadow = true;
+        this.mesh.add(stock);
+
+        // Magazine (Protruding down)
+        const magGeo = new THREE.BoxGeometry(0.08, 0.25, 0.12);
+        const mag = new THREE.Mesh(magGeo, gunmetalDark);
+        mag.position.set(0.15, -0.35, -0.45);
+        mag.castShadow = true;
+        this.mesh.add(mag);
+
+        // Grip/Handle
+        const gripGeo = new THREE.BoxGeometry(0.06, 0.12, 0.08);
+        const grip = new THREE.Mesh(gripGeo, blackPlastic);
+        grip.position.set(0.15, -0.28, -0.35);
+        grip.rotation.x = -0.3; // Slight angle
+        grip.castShadow = true;
+        this.mesh.add(grip);
+
+        // Front Sight
+        const frontSightGeo = new THREE.BoxGeometry(0.03, 0.04, 0.02);
+        const frontSight = new THREE.Mesh(frontSightGeo, gunmetalDark);
+        frontSight.position.set(0.15, -0.1, -0.85);
+        this.mesh.add(frontSight);
+
+        // Rear Sight
+        const rearSightGeo = new THREE.BoxGeometry(0.04, 0.05, 0.02);
+        const rearSight = new THREE.Mesh(rearSightGeo, gunmetalDark);
+        rearSight.position.set(0.15, -0.1, -0.25);
+        this.mesh.add(rearSight);
     }
 
     public update(dt: number, camera: THREE.Camera, controller: PlayerController) {
+        // Handle ADS Input
+        this.isAiming = this.game.input.getMouseButton(2); // Right mouse button
+
+        // Smooth ADS transition
+        const adsSpeed = 10;
+        const targetAds = this.isAiming ? 1 : 0;
+        this.adsAmount += (targetAds - this.adsAmount) * adsSpeed * dt;
+        this.adsAmount = Math.max(0, Math.min(1, this.adsAmount));
+
+        // Interpolate FOV
+        if (camera instanceof THREE.PerspectiveCamera) {
+            const targetFOV = this.normalFOV - (this.normalFOV - this.adsFOV) * this.adsAmount;
+            camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, adsSpeed * dt);
+            camera.updateProjectionMatrix();
+        }
+
         // Handle Recoil Recovery
         this.currentRecoil.x = THREE.MathUtils.lerp(this.currentRecoil.x, 0, this.recoilRecovery * 60 * dt);
         this.currentRecoil.y = THREE.MathUtils.lerp(this.currentRecoil.y, 0, this.recoilRecovery * 60 * dt);
 
-        // Calculate Sway
+        // Calculate Sway (reduced when aiming)
         this.swayTime += dt;
         let swayAmount = 0;
         let swaySpeed = 0;
@@ -52,23 +120,26 @@ export class WeaponSystem extends Weapon {
             swaySpeed = 2;
         }
 
+        // Reduce sway when aiming
+        swayAmount *= (1 - this.adsAmount * 0.8);
+
         const swayX = Math.sin(this.swayTime * swaySpeed) * swayAmount;
         const swayY = Math.abs(Math.cos(this.swayTime * swaySpeed * 2)) * swayAmount; // Unilateral bob
 
         // Reload Animation
         let reloadRotation = 0;
         let reloadPositionOffset = new THREE.Vector3(0, 0, 0);
-        
+
         if (this.isReloading) {
             const progress = this.getReloadProgress();
-            
+
             // Easing function for smooth animation (ease-in-out)
             const easeInOut = (t: number): number => {
                 return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
             };
-            
+
             const easedProgress = easeInOut(progress);
-            
+
             // Stage 1: Tilt down and pull back (0-40% of reload)
             if (progress < 0.4) {
                 const stageProgress = progress / 0.4;
@@ -97,12 +168,15 @@ export class WeaponSystem extends Weapon {
         this.mesh.position.copy(camera.position);
         this.mesh.quaternion.copy(camera.quaternion);
 
+        // Interpolate between hip and ADS position
+        const currentBasePos = this.basePosition.clone().lerp(this.adsPosition, this.adsAmount);
+
         // Apply Sway (Local offset)
-        const offset = this.basePosition.clone();
+        const offset = currentBasePos.clone();
         offset.x += swayX;
         offset.y += swayY;
         offset.z += this.currentRecoil.y * 0.1; // Kickback
-        
+
         // Apply Reload Position Offset
         offset.add(reloadPositionOffset);
 
@@ -159,8 +233,10 @@ export class WeaponSystem extends Weapon {
         // 3. Direction from Muzzle to Target
         const direction = targetPoint.sub(muzzlePos).normalize();
 
-        // 4. Spread
-        const spread = controller.isMoving() ? (controller.isSprinting() ? 0.1 : 0.01) : 0.001;
+        // 4. Spread (reduced when ADS)
+        let spread = controller.isMoving() ? (controller.isSprinting() ? 0.1 : 0.01) : 0.001;
+        spread *= (1 - this.adsAmount * 0.9); // 90% reduction when fully aimed
+
         direction.x += (Math.random() - 0.5) * spread;
         direction.y += (Math.random() - 0.5) * spread;
         direction.z += (Math.random() - 0.5) * spread;

@@ -14,6 +14,7 @@ import { HUDManager } from '../game/HUDManager';
 import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
+import { BoidSystem } from '../game/BoidSystem';
 
 export class Game {
     public renderer: THREE.WebGLRenderer;
@@ -37,6 +38,7 @@ export class Game {
     public squadManager: SquadManager;
     public skyboxManager: SkyboxManager;
     public postProcessingManager?: PostProcessingManager;
+    public boidSystem?: BoidSystem;
 
     constructor() {
         // Init Renderer
@@ -90,6 +92,9 @@ export class Game {
         this.squadManager.init();
 
         this.skyboxManager = new SkyboxManager(this);
+
+        // Initialize Ambient Birds
+        this.boidSystem = new BoidSystem(this, new THREE.Vector3(0, 20, 0), 60);
 
         // Initialize Post-Processing
         this.postProcessingManager = new PostProcessingManager(
@@ -244,6 +249,9 @@ export class Game {
         // Update Weather
         this.weatherManager?.update(dt);
         this.weatherEffects?.update(dt);
+
+        // Update Birds
+        this.boidSystem?.update(dt);
 
         // Update Ballistics
         this.ballisticsManager?.update(dt);

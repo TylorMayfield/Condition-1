@@ -49,6 +49,19 @@ export class Enemy extends GameObject {
         this.rightArm.castShadow = true;
         this.mesh.add(this.rightArm);
 
+        // Legs (Visual only) - positioned from torso bottom to feet
+        const legGeo = new THREE.BoxGeometry(0.15, 0.7, 0.2);
+
+        const leftLeg = new THREE.Mesh(legGeo, mat);
+        leftLeg.position.set(-0.15, -1.15, 0); // Left hip to left foot
+        leftLeg.castShadow = true;
+        this.mesh.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(legGeo, mat);
+        rightLeg.position.set(0.15, -1.15, 0); // Right hip to right foot
+        rightLeg.castShadow = true;
+        this.mesh.add(rightLeg);
+
         this.game.scene.add(this.mesh);
 
         // Physics - realistic human height (~1.6m total, center at ~0.8m)

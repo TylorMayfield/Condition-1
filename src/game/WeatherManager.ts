@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { Game } from '../engine/Game';
 
 export const WeatherType = {
@@ -13,6 +12,7 @@ export class WeatherManager {
     private game: Game;
     public currentWeather: WeatherType = WeatherType.Clear;
     public wind: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
+    private snowEnabled: boolean = false; // Snow off by default
 
     // Particles
     private systems: THREE.Points[] = [];
@@ -29,8 +29,8 @@ export class WeatherManager {
         this.game = game;
         this.initParticles();
 
-        // Start with snow weather
-        this.setWeather(WeatherType.Snow);
+        // Default: Clear (no snow)
+        this.setWeather(WeatherType.Clear);
     }
 
     private initParticles() {
@@ -100,20 +100,10 @@ export class WeatherManager {
         const deltaZ = cameraPos.z - this.lastCameraPos.z;
         this.lastCameraPos.copy(cameraPos);
 
-        // Shared Raycast objects
-        const ray = new CANNON.Ray(new CANNON.Vec3(), new CANNON.Vec3());
-        const result = new CANNON.RaycastResult();
-        const world = this.game.world;
-
         // Process both rain and snow particles
         this.systems.forEach(sys => {
             const positions = sys.geometry.attributes.position.array as Float32Array;
-            // Use appropriate velocity based on which geometry this is
             const velocity = sys.geometry === this.snowGeo ? this.snowVelocity : this.rainVelocity;
-
-            // Keep system at 0,0,0 effectively, or rather, don't move system, move particles relative to camera
-            // Actually, best trick: Keep system attached to camera (for frustum/rendering range), 
-            // but shift particles opposite to camera movement.
 
             sys.position.copy(cameraPos);
 
@@ -132,58 +122,25 @@ export class WeatherManager {
                 y += dy;
                 z += dz;
 
-                // 2. Shift by Camera Delta (to keep world-space position const relative to camera motion)
+                // 2. Shift by Camera Delta
                 x -= deltaX;
                 z -= deltaZ;
 
-                // 3. Wrap around volume center (which is 0,0,0 local to camera)
-                // Range is -20 to 20
+                // 3. Wrap around volume
                 const range = 20;
                 if (x < -range) x += range * 2;
                 if (x > range) x -= range * 2;
                 if (z < -range) z += range * 2;
                 if (z > range) z -= range * 2;
 
-                // Vertical wrap
-                const maxY = sys.geometry === this.snowGeo ? 50 : 20; // Reduce max slightly if we shift min down
-                const minY = -10; // Allow falling below camera (ground level is approx -2 relative to cam)
+                // 4. Vertical wrap
+                const maxY = sys.geometry === this.snowGeo ? 20 : 20;
+                const minY = -10;
 
-                // Shared variables for collision (optimization)
-                let reset = false;
-                const isSnow = sys.geometry === this.snowGeo;
-
-                // 4. Collision Checks (Snow Only)
-                if (isSnow) {
-                    const wx = cameraPos.x + x;
-                    const wy = cameraPos.y + y;
-                    const wz = cameraPos.z + z;
-
-                    // A) Movement Collision (prevent going through walls)
-                    const px = wx - dx;
-                    const py = wy - dy;
-                    const pz = wz - dz;
-
-                    ray.from.set(px, py, pz);
-                    ray.to.set(wx, wy, wz);
-                    result.reset();
-                    ray.intersectWorld(world, { result: result });
-                    if (result.hasHit) reset = true;
-
-                    // B) Sky Occlusion (prevent existing under roof)
-                    if (!reset) {
-                        ray.from.set(wx, wy, wz);
-                        ray.to.set(wx, wy + 50, wz); // Check 50 units up
-                        result.reset();
-                        ray.intersectWorld(world, { result: result, skipBackfaces: true });
-                        if (result.hasHit) reset = true;
-                    }
-                }
-
-                if (y < minY || reset) {
+                if (y < minY) {
                     if (sys.geometry === this.snowGeo) {
-                        // Respawn at lower height (5-15 units above camera)
+                        // Respawn at top
                         y = 5 + Math.random() * 10;
-                        // Randomize XZ on respawn
                         x = (Math.random() - 0.5) * 40;
                         z = (Math.random() - 0.5) * 40;
                     } else {

@@ -92,7 +92,10 @@ export class MapMenuManager {
         // Available maps - brushmap format
         this.availableMaps = [
             'killhouse',
-            'de_dust2_d'
+            'de_dust2_d',
+            'de_train_d',
+            'de_chateau_d',
+            'cs_office_d'
         ];
     }
 

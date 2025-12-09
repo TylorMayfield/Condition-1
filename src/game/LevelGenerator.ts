@@ -118,12 +118,24 @@ export class LevelGenerator {
             // Render Solids (World)
             // Add Atmospheric Lighting
             // Replace AmbientLight with HemisphereLight for better depth
-            const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0xE6CFA1, 0.8); // Sky Blue / Sand
+            const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0xE6CFA1, 1.2); // Increased intensity
             this.game.scene.add(hemiLight);
 
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            const sunLight = new THREE.DirectionalLight(0xffffff, 2.0); // Increased intensity
             sunLight.position.set(50, 100, 50);
             sunLight.castShadow = true;
+
+            // Configure shadow camera for proper coverage
+            sunLight.shadow.camera.left = -100;
+            sunLight.shadow.camera.right = 100;
+            sunLight.shadow.camera.top = 100;
+            sunLight.shadow.camera.bottom = -100;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.bias = -0.0001;
+
             this.game.scene.add(sunLight);
 
             // Add Distance Fog (Sand color) to blend skybox

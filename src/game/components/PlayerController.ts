@@ -23,10 +23,13 @@ export class PlayerController {
     private lean: number = 0; // -1 (left) to 1 (right)
     private targetLean: number = 0;
     private isNoclip: boolean = false;
+    private flashlight: THREE.SpotLight | null = null;
+    private flashlightOn: boolean = false;
 
     constructor(game: Game, gameObject: GameObject) {
         this.game = game;
         this.gameObject = gameObject;
+        this.initFlashlight();
     }
 
     public update(dt: number) {
@@ -34,6 +37,7 @@ export class PlayerController {
         this.handleMovement();
         this.handleLeaning(dt);
         this.handleCrouching(dt);
+        this.handleFlashlightToggle();
         this.syncCamera(dt);
     }
 
@@ -234,6 +238,47 @@ export class PlayerController {
         ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
 
         return result.hasHit;
+    }
+
+    private initFlashlight() {
+        // Create spotlight for flashlight
+        this.flashlight = new THREE.SpotLight(0xffffff, 8.0); // Much brighter
+        this.flashlight.angle = Math.PI / 5; // Slightly wider cone
+        this.flashlight.penumbra = 0.2;
+        this.flashlight.decay = 1.0; // Reduced decay for better range
+        this.flashlight.distance = 50;
+        this.flashlight.castShadow = true;
+        this.flashlight.shadow.mapSize.width = 1024;
+        this.flashlight.shadow.mapSize.height = 1024;
+
+        // Add to camera
+        this.game.camera.add(this.flashlight);
+        this.flashlight.position.set(0.1, -0.1, 0); // Slightly offset from camera center
+
+        // Create and add target
+        this.flashlight.target.position.set(0, 0, -1);
+        this.game.scene.add(this.flashlight.target); // Add target to scene, not camera
+
+        this.flashlight.visible = false; // Start off
+        console.log('Flashlight initialized');
+    }
+
+    private handleFlashlightToggle() {
+        if (this.game.input.getKeyDown('KeyF')) {
+            this.flashlightOn = !this.flashlightOn;
+            if (this.flashlight) {
+                this.flashlight.visible = this.flashlightOn;
+                console.log(`Flashlight ${this.flashlightOn ? 'ON' : 'OFF'}`);
+            }
+        }
+
+        // Update flashlight target to always point forward from camera
+        if (this.flashlight && this.flashlightOn) {
+            const forward = new THREE.Vector3(0, 0, -1);
+            forward.applyQuaternion(this.game.camera.quaternion);
+            forward.multiplyScalar(5); // 5 units ahead
+            this.flashlight.target.position.copy(this.game.camera.position).add(forward);
+        }
     }
 
     private syncCamera(_dt: number) {
