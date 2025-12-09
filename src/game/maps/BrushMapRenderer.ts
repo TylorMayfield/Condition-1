@@ -49,13 +49,18 @@ export class BrushMapRenderer {
             this.materials.set(name, mat);
         }
 
-        // Glass material (transparent)
-        const glassMat = new THREE.MeshStandardMaterial({
-            color: 0x88ccff,
+        // Glass material (transparent) - improved appearance
+        const glassMat = new THREE.MeshPhysicalMaterial({
+            color: 0xaaddff,
             transparent: true,
-            opacity: 0.3,
-            roughness: 0.1,
-            metalness: 0.2,
+            opacity: 0.4,
+            roughness: 0.05,
+            metalness: 0.0,
+            transmission: 0.9,        // Glass-like light transmission
+            thickness: 0.5,           // Simulated glass thickness
+            envMapIntensity: 1.0,
+            clearcoat: 1.0,           // Glossy coating for reflection
+            clearcoatRoughness: 0.1,
         });
         this.materials.set('glass', glassMat);
     }
@@ -138,10 +143,15 @@ export class BrushMapRenderer {
     private getMaterial(brush: Brush): THREE.Material {
         // If brush has custom color, create unique material
         if (brush.color !== undefined) {
+            const isTransparent = brush.surface?.transparent ?? false;
+            const opacity = brush.surface?.opacity ?? 1.0;
+
             const mat = new THREE.MeshStandardMaterial({
                 color: brush.color,
                 roughness: brush.surface?.roughness ?? 0.7,
                 metalness: brush.surface?.metalness ?? 0.1,
+                transparent: isTransparent,
+                opacity: isTransparent ? opacity : 1.0,
             });
             return mat;
         }
@@ -160,7 +170,27 @@ export class BrushMapRenderer {
      */
     private createSurfaceMaterial(materialType: BrushMaterialType, surface: BrushSurface): THREE.Material {
         const baseColor = MATERIAL_COLORS[materialType] || MATERIAL_COLORS.concrete;
+        const isTransparent = surface.transparent ?? (materialType === 'glass');
+        const opacity = surface.opacity ?? (materialType === 'glass' ? 0.4 : 1.0);
 
+        // Use MeshPhysicalMaterial for transparent/glass materials for better appearance
+        if (isTransparent || materialType === 'glass') {
+            const mat = new THREE.MeshPhysicalMaterial({
+                color: baseColor,
+                roughness: surface.roughness,
+                metalness: surface.metalness ?? 0.0,
+                transparent: true,
+                opacity: opacity,
+                transmission: materialType === 'glass' ? 0.9 : 0.5,
+                thickness: 0.5,
+                envMapIntensity: 1.0,
+                clearcoat: materialType === 'glass' ? 1.0 : 0.0,
+                clearcoatRoughness: 0.1,
+            });
+            return mat;
+        }
+
+        // Standard material for opaque surfaces
         const mat = new THREE.MeshStandardMaterial({
             color: baseColor,
             roughness: surface.roughness,

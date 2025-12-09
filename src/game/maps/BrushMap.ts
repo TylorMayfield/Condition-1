@@ -32,6 +32,8 @@ export interface BrushSurface {
     blend?: BrushMaterialType;  // Material to blend with at edges
     blendWidth?: number;        // Blend transition width in units
     normalScale?: number;       // Normal map intensity
+    transparent?: boolean;      // Enable transparency for this surface
+    opacity?: number;           // 0-1 opacity level (1 = fully opaque, 0 = fully transparent)
 }
 
 /**

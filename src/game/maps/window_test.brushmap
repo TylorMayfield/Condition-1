@@ -1,0 +1,49 @@
+# Simple Room with Windows
+# Demonstrates transparent glass windows with different opacity levels
+
+@name Simple Window Test Room
+@version 1.0
+@scale 2.0
+
+# Floor
+solid concrete 0 0 0 20 1 20
+
+# Walls
+solid concrete 0 1 0 1 8 20      # Left wall
+solid concrete 19 1 0 1 8 20     # Right wall
+solid concrete 0 1 0 20 8 1      # Back wall
+
+# Front wall with windows
+solid concrete 0 1 19 5 8 1      # Left section
+solid concrete 15 1 19 5 8 1     # Right section
+solid concrete 0 7 19 20 2 1     # Top section
+
+# Window 1: Standard glass (default opacity 0.4)
+solid glass 5 1 19 5 4 0.2
+
+# Window 2: More transparent (opacity 0.2)
+solid glass 5 5 19 5 2 0.2 {
+    surface {
+        opacity: 0.2
+        roughness: 0.05
+    }
+}
+
+# Window 3: Frosted glass (higher opacity, more roughness)
+solid glass 10 1 19 5 6 0.2 {
+    surface {
+        opacity: 0.6
+        roughness: 0.4
+    }
+}
+
+# Ceiling
+solid concrete 0 9 0 20 1 20
+
+# Interior objects for visibility testing
+solid crate 8 1 8 2 2 2
+solid crate 12 1 12 1.5 1.5 1.5
+
+# Spawn points
+spawn player 10 2 10
+spawn enemy 10 2 5

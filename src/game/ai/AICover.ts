@@ -41,7 +41,7 @@ export class AICover {
         // Check all game objects for potential cover
         for (const obj of this.game.gameObjects) {
             if (!obj.body || obj === this.owner) continue;
-            
+
             // Skip the player and other enemies
             if (obj === this.game.player || obj instanceof Enemy) continue;
 
@@ -63,7 +63,7 @@ export class AICover {
 
             // Find cover positions around the obstacle
             const coverPositions = this.findCoverPositionsAroundObstacle(objPos, threatPosition, ownerPos);
-            
+
             for (const coverPos of coverPositions) {
                 const quality = this.evaluateCoverQuality(coverPos, objPos, threatPosition, ownerPos);
                 if (quality > 0.3) { // Only consider decent cover
@@ -80,7 +80,7 @@ export class AICover {
         for (const cover of potentialCovers) {
             // Score based on quality and distance (closer is better, but quality matters more)
             const score = cover.quality * 0.7 + (1 - Math.min(cover.distance / this.coverSearchRadius, 1)) * 0.3;
-            
+
             if (score > bestScore) {
                 bestScore = score;
                 return cover;
@@ -99,35 +99,35 @@ export class AICover {
         ownerPos: THREE.Vector3
     ): THREE.Vector3[] {
         const positions: THREE.Vector3[] = [];
-        
+
         // Vector from threat to obstacle (we want to be on the opposite side)
         const threatToObstacle = new THREE.Vector3().subVectors(obstaclePos, threatPos).normalize();
-        
+
         // Find positions around the obstacle, favoring the side away from threat
         const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
         const radius = 1.5; // Distance from obstacle center
-        
+
         for (const angle of angles) {
             const offset = new THREE.Vector3(
                 Math.cos(angle) * radius,
                 0,
                 Math.sin(angle) * radius
             );
-            
+
             // Rotate offset to align with threat-obstacle vector
             const perp = new THREE.Vector3(-threatToObstacle.z, 0, threatToObstacle.x);
-            const finalOffset = offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), 
+            const finalOffset = offset.applyAxisAngle(new THREE.Vector3(0, 1, 0),
                 Math.atan2(perp.z, perp.x));
-            
+
             const coverPos = obstaclePos.clone().add(finalOffset);
             coverPos.y = ownerPos.y; // Keep same height
-            
+
             // Check if position is valid (not inside obstacle, has line of sight to obstacle)
             if (this.isValidCoverPosition(coverPos, obstaclePos)) {
                 positions.push(coverPos);
             }
         }
-        
+
         return positions;
     }
 
@@ -138,11 +138,11 @@ export class AICover {
         // Raycast from cover position to obstacle to ensure we can reach it
         const start = new CANNON.Vec3(coverPos.x, coverPos.y + 0.5, coverPos.z);
         const end = new CANNON.Vec3(obstaclePos.x, obstaclePos.y, obstaclePos.z);
-        
+
         const ray = new CANNON.Ray(start, end);
         const result = new CANNON.RaycastResult();
         ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
-        
+
         // Should hit the obstacle
         return result.hasHit;
     }
@@ -161,7 +161,7 @@ export class AICover {
         // 1. Check if obstacle blocks line of sight from threat
         const threatToCover = new THREE.Vector3().subVectors(coverPos, threatPos);
         const threatToObstacle = new THREE.Vector3().subVectors(obstaclePos, threatPos);
-        
+
         // If obstacle is between threat and cover, that's good
         const dot = threatToObstacle.normalize().dot(threatToCover.normalize());
         if (dot > 0.7) { // Obstacle is in the way
@@ -182,10 +182,10 @@ export class AICover {
         );
         const result = new CANNON.RaycastResult();
         ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
-        
+
         // If we can peek around the cover, that's good
-        if (result.hasHit && result.body && result.hitPoint) {
-            const hitPos = new THREE.Vector3(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+        if (result.hasHit && result.body && result.hitPointWorld) {
+            const hitPos = new THREE.Vector3(result.hitPointWorld.x, result.hitPointWorld.y, result.hitPointWorld.z);
             const distToHit = coverPos.distanceTo(hitPos);
             if (distToHit > 1.0) { // Can peek around
                 quality += 0.2;
@@ -215,12 +215,12 @@ export class AICover {
         const result = new CANNON.RaycastResult();
         ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
 
-        if (!result.hasHit || !result.hitPoint) return false;
+        if (!result.hasHit || !result.hitPointWorld) return false;
 
         // Check if something is blocking the line of sight
-        const hitPos = new THREE.Vector3(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+        const hitPos = new THREE.Vector3(result.hitPointWorld.x, result.hitPointWorld.y, result.hitPointWorld.z);
         const distToHit = ownerPos.distanceTo(hitPos);
-        
+
         // If hit point is close to owner, we might not have cover
         // If hit point is far, something is blocking
         return distToHit > 0.5;
@@ -241,7 +241,7 @@ export class AICover {
         // Calculate perpendicular direction to threat
         const toThreat = new THREE.Vector3().subVectors(threatPosition, ownerPos).normalize();
         const perp = new THREE.Vector3(-toThreat.z, 0, toThreat.x);
-        
+
         // Try positions to the left and right of threat
         const flankDistance = 8;
         const positions = [
@@ -252,7 +252,7 @@ export class AICover {
         // Find the position that's closer to owner and has a clear path
         for (const pos of positions) {
             pos.y = ownerPos.y;
-            
+
             // Check if path is relatively clear
             const ray = new CANNON.Ray(
                 new CANNON.Vec3(ownerPos.x, ownerPos.y + 0.5, ownerPos.z),
@@ -260,8 +260,8 @@ export class AICover {
             );
             const result = new CANNON.RaycastResult();
             ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
-            
-            if (!result.hasHit || !result.hitPoint || ownerPos.distanceTo(new THREE.Vector3(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z)) > 5) {
+
+            if (!result.hasHit || !result.hitPointWorld || ownerPos.distanceTo(new THREE.Vector3(result.hitPointWorld.x, result.hitPointWorld.y, result.hitPointWorld.z)) > 5) {
                 return pos;
             }
         }

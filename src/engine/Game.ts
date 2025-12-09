@@ -44,12 +44,16 @@ export class Game {
         // Init Renderer
         this.renderer = new THREE.WebGLRenderer({
             antialias: false, // We'll use FXAA instead
-            powerPreference: "high-performance"
+            powerPreference: "high-performance",
+            logarithmicDepthBuffer: true // Better depth precision for large scenes
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Performance optimizations
+        this.renderer.sortObjects = true; // Enable object sorting for better culling
 
         // Post-processing / Tone Mapping
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;

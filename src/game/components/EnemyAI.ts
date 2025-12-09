@@ -121,7 +121,6 @@ export class EnemyAI {
         // Strategic decision making
         const shouldTakeCover = this.owner.health < this.healthThreshold && canSee && !hasCover;
         const shouldFlank = canSee && dist > this.attackRange * 0.8 && this.personality === AIPersonality.Tactical;
-        const shouldAdvance = canSee && dist > this.attackRange && this.personality === AIPersonality.Rusher;
 
         // State Transitions
         switch (this.state) {
@@ -172,9 +171,9 @@ export class EnemyAI {
                     this.state = AIState.Flank;
                 }
                 break;
-            case AIState.TakeCover:
                 if (this.coverTarget) {
-                    const distToCover = body.position.distanceTo(new THREE.Vector3(this.coverTarget.x, body.position.y, this.coverTarget.z));
+                    const coverVec3 = new CANNON.Vec3(this.coverTarget.x, body.position.y, this.coverTarget.z);
+                    const distToCover = body.position.distanceTo(coverVec3);
                     if (distToCover < 1.0) {
                         // Reached cover, stay there for a bit
                         this.coverTimer = 2000 + Math.random() * 3000;
@@ -202,7 +201,8 @@ export class EnemyAI {
                 break;
             case AIState.Flank:
                 if (this.flankTarget) {
-                    const distToFlank = body.position.distanceTo(new THREE.Vector3(this.flankTarget.x, body.position.y, this.flankTarget.z));
+                    const flankVec3 = new CANNON.Vec3(this.flankTarget.x, body.position.y, this.flankTarget.z);
+                    const distToFlank = body.position.distanceTo(flankVec3);
                     if (distToFlank < 2.0) {
                         // Reached flank position
                         this.flankTarget = null;

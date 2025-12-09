@@ -82,4 +82,9 @@ export class RoundManager {
         this.enemiesToSpawn--;
         this.enemiesAlive++;
     }
+
+    public addEnemy(enemy: Enemy) {
+        this.game.addGameObject(enemy);
+        this.enemiesAlive++;
+    }
 }

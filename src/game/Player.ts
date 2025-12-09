@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GameObject } from '../engine/GameObject';
 import { Game } from '../engine/Game';
@@ -42,6 +43,14 @@ export class Player extends GameObject {
 
     public getCurrentWeapon() {
         return this.weapon;
+    }
+
+    public moveTo(position: THREE.Vector3) {
+        if (this.body) {
+            this.body.position.set(position.x, position.y, position.z);
+            this.body.velocity.set(0, 0, 0);
+            this.body.angularVelocity.set(0, 0, 0);
+        }
     }
 
     private updateHUD() {

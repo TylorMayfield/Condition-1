@@ -1,6 +1,6 @@
 import { Game } from '../../engine/Game';
 import { TileMap, TileType } from './TileMap';
-import type { TileData } from './TileMap';
+import { type TileData } from './TileMap';
 import { MapMaterials } from './renderers/MapMaterials';
 import { FloorRenderer } from './renderers/FloorRenderer';
 import { RampRenderer } from './renderers/RampRenderer';
@@ -19,8 +19,10 @@ export class MapRenderer {
     private doorWindowRenderer: DoorWindowRenderer;
     private coverRenderer: CoverRenderer;
     private roofRenderer: RoofRenderer;
+    private tileMap: TileMap;
 
-    constructor(game: Game, private tileMap: TileMap) {
+    constructor(game: Game, tileMap: TileMap) {
+        this.tileMap = tileMap;
         this.materials = new MapMaterials(tileMap);
         this.floorRenderer = new FloorRenderer(game, this.materials);
         this.rampRenderer = new RampRenderer(game, tileMap, this.materials);

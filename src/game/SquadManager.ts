@@ -56,6 +56,11 @@ export class SquadManager {
         }
     }
 
+    public addMember(member: SquadMember) {
+        this.game.addGameObject(member);
+        this.members.push(member);
+    }
+
     public update(_dt: number) {
         // Monitor squad status
     }
