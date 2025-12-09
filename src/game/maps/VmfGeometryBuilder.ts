@@ -17,7 +17,8 @@ export class VmfGeometryBuilder {
 
         // 1. Find all vertices by intersecting every triplet of planes
         // This is O(N^3) but N is small (usually 6 sides for a box).
-        // Optimization: For axis aligned boxes, we could detect it, but generalized is safer for slopes.
+        // Limit logs
+        const debug = Math.random() < 0.01; // Sample 1%
 
         for (let i = 0; i < sides.length - 2; i++) {
             for (let j = i + 1; j < sides.length - 1; j++) {
@@ -28,12 +29,8 @@ export class VmfGeometryBuilder {
 
                     const intersection = this.getIntersection(p1, p2, p3);
                     if (intersection) {
-                        // Check if this point is "behind" or "on" all other planes
-                        // A point is valid if it's not in front of any face definition
                         if (this.isPointInsideSolid(intersection, sides)) {
                             vertices.push(intersection);
-                            // We need to associate this vertex with the faces that generated it
-                            // But simpler: After collecting all Filtered Vertices, we Re-distribute them to Faces.
                         }
                     }
                 }
@@ -42,15 +39,17 @@ export class VmfGeometryBuilder {
 
         // Remove duplicates (floating point tolerance)
         const uniqueVertices = this.mergeVertices(vertices);
-        if (uniqueVertices.length < 4) return new THREE.BufferGeometry(); // Not a volume
+        if (uniqueVertices.length < 4) {
+            if (sides.length >= 4 && debug) {
+                console.warn(`VmfGeometryBuilder: Solid with ${sides.length} sides produced only ${uniqueVertices.length} vertices. (Input vertices: ${vertices.length})`);
+            }
+            return new THREE.BufferGeometry();
+        }
 
         // 2. Build Faces (Polygon winding)
         // For each side plane, find vertices that lie on it
         const finalVertices: number[] = [];
         const finalUVs: number[] = [];
-
-        // Group by material? For now, let's just dump triangles.
-        // Actually best to separate geometry by material or use groups.
 
         for (const side of sides) {
             // Find vertices on this plane
@@ -95,12 +94,10 @@ export class VmfGeometryBuilder {
 
         // Also Scale (Source units are inches generally, 1 unit approx 0.75 inches or 1.9cm)
         // Character is ~72 units tall? In standard HL2.
-        // Condition-1 seems to use metric-ish 2m tall.
         // Let's assume some global scale factor. VMF scale 1unit ~ 1inch. 
         // 1 unit = 0.0254 meters. 
         // 72 units = 1.8m (Player height).
         // So scale factor 0.0254 ~ 0.02 or just divide by ~40.
-        // The user's brushmaps used Scale: 2.
         // Let's use 0.03 for now to match rough sizing.
         geometry.scale(0.03, 0.03, 0.03);
 
@@ -133,15 +130,11 @@ export class VmfGeometryBuilder {
         // Tolerant check
         const EPSILON = 0.1;
         for (const side of sides) {
-            // distanceToPoint returns signed distance. 
-            // If normal points OUT, then inside is NEGATIVE distance.
-            // Wait, standard plane eq: normal . p + w = 0.
-            // If normal points out, then (normal . p + w) > 0 is outside.
-            // We want (normal . p + w) <= EPSILON.
-
-            // VMF Normals point OUT.
             const dist = side.plane.distanceToPoint(pt);
-            if (dist > EPSILON) return false;
+
+            // Assume normals point INWARD due to VMF winding order vs Three.js expectation.
+            // If dist < -EPSILON, the point is "behind" the plane (outside the volume).
+            if (dist < -EPSILON) return false;
         }
         return true;
     }

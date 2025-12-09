@@ -114,13 +114,25 @@ export class LevelGenerator {
 
             // Parse the VMF
             const mapData = VmfParser.parse(content);
-            console.log(`Loaded VMF Map: ${fileName} v${mapData.version}`);
-
             // Render Solids (World)
+            // Add basic lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            this.game.scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            sunLight.position.set(50, 100, 50);
+            sunLight.castShadow = true;
+            this.game.scene.add(sunLight);
+
+            // Init default skybox (reset to ensure it's visible)
+            this.game.skyboxManager.reset();
+
+            console.log(`Loaded VMF Map: ${fileName} v${mapData.version}`);
             const material = new THREE.MeshStandardMaterial({
                 color: 0x888888,
                 roughness: 0.8,
-                map: this.createDevTexture()
+                map: this.createDevTexture(),
+                side: THREE.DoubleSide
             });
 
             if (mapData.world && mapData.world.solids) {
@@ -224,11 +236,14 @@ export class LevelGenerator {
         const scale = 0.03;
         const pos = new THREE.Vector3(origin.x * scale, origin.z * scale, -origin.y * scale);
 
+        console.log(`Spawning ${entity.classname} at VMF(${origin.x}, ${origin.y}, ${origin.z}) -> World(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
+
         if (entity.classname === 'info_player_start' || entity.classname === 'info_player_counterterrorist') {
             if (this.game.player && this.game.player.body) {
                 const player = this.game.player;
                 // Reset player pos
-                player.body.position.set(pos.x, pos.y + 1, pos.z);
+                // Increased spawn height to 50 (approx 1.5m) to ensure not stuck in floor
+                player.body.position.set(pos.x, pos.y + 5, pos.z);
                 player.body.velocity.set(0, 0, 0);
             }
         } else if (entity.classname === 'info_player_terrorist') {

@@ -194,8 +194,19 @@ export class VmfParser {
     }
 
     private static parsePlane(planeStr: string): THREE.Vector3[] {
-        // Format: "(x1 y1 z1) (x2 y2 z2) (x3 y3 z3)"
-        const parts = planeStr.replace(/[()]/g, '').split(/\s+/).map(parseFloat);
+        // Format: "(x1 y1 z1) ... "
+        const parts = planeStr
+            .replace(/[()]/g, ' ')  // Replace parens with spaces
+            .trim()                 // Trim ends
+            .split(/\s+/)           // Split by whitespace
+            .map(parseFloat)
+            .filter(n => !isNaN(n)); // Remove parse errors
+
+        if (parts.length < 9) {
+            console.error(`Invalid plane definition: ${planeStr} -> parsed ${parts.length} numbers`);
+            return [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+        }
+
         return [
             new THREE.Vector3(parts[0], parts[1], parts[2]),
             new THREE.Vector3(parts[3], parts[4], parts[5]),

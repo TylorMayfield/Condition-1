@@ -26,6 +26,18 @@ export class SkyboxManager {
         }
     }
 
+    public reset() {
+        if (this.skyMesh) {
+            this.game.scene.remove(this.skyMesh);
+            // dispose geometry/material?
+        }
+        this.clouds.forEach(c => this.game.scene.remove(c));
+        this.clouds = [];
+
+        this.initSky();
+        this.initClouds();
+    }
+
     private initSky() {
         // Simple Gradient Sky Sphere
         const geo = new THREE.SphereGeometry(90, 32, 32);
@@ -77,10 +89,10 @@ export class SkyboxManager {
             const x = (Math.random() - 0.5) * 100;
             const y = 20 + Math.random() * 30; // Height between 20-50
             const z = (Math.random() - 0.5) * 100;
-            
+
             // Simple cloud shape using multiple spheres
             const cloudGroup = new THREE.Group();
-            
+
             // Main cloud body
             const geo = new THREE.SphereGeometry(3 + Math.random() * 2, 8, 8);
             const mat = new THREE.MeshStandardMaterial({
@@ -89,7 +101,7 @@ export class SkyboxManager {
                 opacity: 0.6,
                 flatShading: true
             });
-            
+
             // Create cloud from multiple overlapping spheres
             for (let j = 0; j < 5; j++) {
                 const cloudPart = new THREE.Mesh(geo, mat);
@@ -107,7 +119,7 @@ export class SkyboxManager {
                 cloudPart.receiveShadow = false;
                 cloudGroup.add(cloudPart);
             }
-            
+
             cloudGroup.position.set(x, y, z);
             this.clouds.push(cloudGroup);
             this.game.scene.add(cloudGroup);
@@ -120,7 +132,7 @@ export class SkyboxManager {
             // Slow drift
             cloud.position.x += dt * (0.1 + Math.sin(index) * 0.05);
             cloud.rotation.y += dt * 0.01;
-            
+
             // Wrap around if too far
             if (cloud.position.x > 60) {
                 cloud.position.x = -60;
