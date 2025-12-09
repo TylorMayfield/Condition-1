@@ -96,10 +96,18 @@ export class LevelGenerator {
         }
 
         // 2. Clear Physics World
-        // Remove all bodies
+        console.log(`Clearing ${this.game.world.bodies.length} physics bodies...`);
+        let safetyCounter = 0;
+        const MAX_BODIES = 10000;
         while (this.game.world.bodies.length > 0) {
             this.game.world.removeBody(this.game.world.bodies[0]);
+            safetyCounter++;
+            if (safetyCounter > MAX_BODIES) {
+                console.error("Infinite loop detected in physics cleanup! breaking.");
+                break;
+            }
         }
+        console.log('Physics cleared.');
 
         // 3. Clear GameObjects (Entities)
         // We will implement specific clear logic in Game or loop here

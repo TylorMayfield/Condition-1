@@ -37,20 +37,46 @@ export class VmfWorldBuilder {
     public build(mapData: VmfMap) {
         console.log(`VmfWorldBuilder: Building map version ${mapData.version}`);
 
-        // Store geometries by Chunk -> Material -> Geometries[]
-        // Map<ChunkKey, Map<MaterialName, BufferGeometry[]>>
-        const chunkMap = new Map<string, Map<string, THREE.BufferGeometry[]>>();
+        // Chunking
         const CHUNK_SIZE = 20;
 
-        const processVisuals = (geos: Array<{ material: string, geometry: THREE.BufferGeometry, isDisplacement: boolean }>) => {
+        // Visuals: Chunk -> Material -> Geometries[]
+        const visualChunkMap = new Map<string, Map<string, THREE.BufferGeometry[]>>();
+
+        // Physics: Chunk -> Geometries[]
+        const physicsChunkMap = new Map<string, THREE.BufferGeometry[]>();
+
+        const ALWAYS_IGNORED = [
+            'TOOLS/TOOLSTRIGGER',
+            'TOOLS/TOOLSFOG',
+            'TOOLS/TOOLSLIGHT',
+            'TOOLS/TOOLSAREAPORTAL',
+            'TOOLS/TOOLSOCCLUDER'
+            // Keep NODRAW, CLIP, SKIP, HINT - they are processed below
+        ];
+
+        const VISUAL_IGNORED = [
+            'TOOLS/TOOLSNODRAW',
+            'TOOLS/TOOLSCLIP',
+            'TOOLS/TOOLSSKIP',
+            'TOOLS/TOOLSHINT',
+            'TOOLS/TOOLSSKYBOX',
+            'TOOLS/TOOLSORIGIN'
+        ];
+
+        const PHYSICS_IGNORED = [
+            'TOOLS/TOOLSSKYBOX', // Don't collide with sky
+            // NODRAW and CLIP are VALID for physics, so don't ignore them here
+            'TOOLS/TOOLSORIGIN'
+        ];
+
+        const processGeometry = (geos: Array<{ material: string, geometry: THREE.BufferGeometry, isDisplacement: boolean }>, enablePhysicsForThisSolid: boolean) => {
             for (const { material, geometry, isDisplacement } of geos) {
                 // Scale first
                 geometry.scale(0.02, 0.02, 0.02);
-
                 geometry.computeBoundingBox();
                 if (!geometry.boundingBox) continue;
 
-                // Determine chunk
                 const center = new THREE.Vector3();
                 geometry.boundingBox.getCenter(center);
                 const chunkX = Math.floor(center.x / CHUNK_SIZE);
@@ -58,49 +84,73 @@ export class VmfWorldBuilder {
                 const chunkZ = Math.floor(center.z / CHUNK_SIZE);
                 const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
 
-                // Add to structure
-                if (!chunkMap.has(chunkKey)) {
-                    chunkMap.set(chunkKey, new Map());
-                }
-                const matMap = chunkMap.get(chunkKey)!;
+                const matUpper = material.toUpperCase();
 
-                // Key separation for displacements
-                const key = isDisplacement ? `${material}_DISP` : material;
+                // 1. Visuals
+                const isVisual = !VISUAL_IGNORED.some(ign => matUpper.includes(ign));
+                if (isVisual) {
+                    if (!visualChunkMap.has(chunkKey)) {
+                        visualChunkMap.set(chunkKey, new Map());
+                    }
+                    const matMap = visualChunkMap.get(chunkKey)!;
+                    const key = isDisplacement ? `${material}_DISP` : material;
 
-                if (!matMap.has(key)) {
-                    matMap.set(key, []);
+                    if (!matMap.has(key)) matMap.set(key, []);
+                    matMap.get(key)!.push(geometry);
                 }
-                matMap.get(key)!.push(geometry);
+
+                // 2. Physics (Merged by chunk, ignore material)
+                // Note: We need a SEPARATE geometry copy for physics if it was used in visuals?
+                // Actually, if we merge them later, cloning is safer or we use the same reference if not modified further.
+                // But visuals will be merged into a visual mesh. Physics into a physics mesh.
+                // BufferGeometryUtils.mergeGeometries creates a NEW geometry. So sharing the input geometry is fine.
+                const isPhysicsMaterial = !PHYSICS_IGNORED.some(ign => matUpper.includes(ign));
+                // Also ensure it's not a non-solid brush (handled by caller logic usually, but here filtering by texture)
+
+                if (enablePhysicsForThisSolid && isPhysicsMaterial) {
+                    if (!physicsChunkMap.has(chunkKey)) {
+                        physicsChunkMap.set(chunkKey, []);
+                    }
+                    // Clone because we might merge differently? No, mergeGeometries doesn't consume inputs. 
+                    // But to be safe against side effects (like disposal).
+                    // Actually, if we use the same geometry instance in two merges, it is fine.
+                    physicsChunkMap.get(chunkKey)!.push(geometry);
+                }
             }
         };
 
         // 1. World Solids
+        console.log('VmfWorldBuilder: Processing World Solids...');
         if (mapData.world && mapData.world.solids) {
             for (const solid of mapData.world.solids) {
-                this.createPhysicsForSolid(solid);
-                const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true);
-                processVisuals(geos);
+                // Pass "ALWAYS_IGNORED" so we get NODRAW faces back
+                const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true, ALWAYS_IGNORED);
+                processGeometry(geos, true); // World solids always contribute to physics
             }
         }
 
         // 2. Entity Solids
+        console.log('VmfWorldBuilder: Processing Entity Solids...');
         for (const entity of mapData.entities) {
             if (entity.solids && entity.solids.length > 0) {
                 const isIllusionary = entity.classname === 'func_illusionary';
+                // For func_brush, 'solidity' property determines if it's solid.
+                // 0 = Solid, 1 = Nonsolid, 2 = Trigger.
+                // We want physics if solidity is 0 (Solid) or undefined (default solid).
                 const isNonSolidBrush = entity.classname === 'func_brush' && entity.properties['solidity'] === '1';
-                const shouldCreatePhysics = !isIllusionary && !isNonSolidBrush;
+
+                const enablePhysicsForThisEntity = !isIllusionary && !isNonSolidBrush;
 
                 for (const solid of entity.solids) {
-                    if (shouldCreatePhysics) this.createPhysicsForSolid(solid);
-                    const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true);
-                    processVisuals(geos);
+                    const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true, ALWAYS_IGNORED);
+                    processGeometry(geos, enablePhysicsForThisEntity);
                 }
             }
         }
 
-        // 3. Merge and Create Meshes
+        // 3. Create Visual Meshes
         let totalMeshes = 0;
-        for (const [chunkKey, matMap] of chunkMap) {
+        for (const [chunkKey, matMap] of visualChunkMap) {
             for (const [matKey, geometries] of matMap) {
                 if (geometries.length === 0) continue;
 
@@ -140,8 +190,47 @@ export class VmfWorldBuilder {
                 }
             }
         }
+        console.log(`VmfWorldBuilder: Created ${totalMeshes} merged visual meshes.`);
 
-        console.log(`VmfWorldBuilder: Created ${totalMeshes} merged meshes.`);
+        // 4. Create Physics Bodies (Merged)
+        let totalPhysicsBodies = 0;
+        for (const [chunkKey, geometries] of physicsChunkMap) {
+            if (geometries.length === 0) continue;
+
+            const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
+            if (!merged) continue;
+
+            const position = merged.attributes.position;
+            const vertices: number[] = [];
+            const indices: number[] = [];
+
+            // Convert to Cannon Trimesh (Indexed)
+            // Naive approach: Just dump all triangles (unindexed if merged is unindexed, or use index)
+            if (merged.index) {
+                // Indexed geometry
+                for (let i = 0; i < position.count; i++) {
+                    vertices.push(position.getX(i), position.getY(i), position.getZ(i));
+                }
+                for (let i = 0; i < merged.index.count; i++) {
+                    indices.push(merged.index.getX(i));
+                }
+            } else {
+                // Non-indexed (triangle soup)
+                for (let i = 0; i < position.count; i++) {
+                    vertices.push(position.getX(i), position.getY(i), position.getZ(i));
+                    indices.push(i);
+                }
+            }
+
+            if (indices.length >= 3) {
+                const shape = new CANNON.Trimesh(vertices, indices);
+                const body = new CANNON.Body({ mass: 0, shape: shape });
+                this.world.addBody(body);
+                totalPhysicsBodies++;
+            }
+        }
+        console.log(`VmfWorldBuilder: Created ${totalPhysicsBodies} merged physics bodies.`);
+
     }
 
     private getMaterialForTexture(textureName: string): THREE.Material {
@@ -275,60 +364,5 @@ export class VmfWorldBuilder {
         };
         return colors[type] || 0x888888;
     }
-
-    private createPhysicsForSolid(solid: VmfSolid) {
-        const PHYSICS_IGNORED = [
-            'TOOLS/TOOLSTRIGGER',
-            'TOOLS/TOOLSSKIP',
-            'TOOLS/TOOLSHINT',
-            'TOOLS/TOOLSORIGIN',
-            'TOOLS/TOOLSFOG',
-            'TOOLS/TOOLSLIGHT',
-            'TOOLS/TOOLSAREAPORTAL',
-            'TOOLS/TOOLSOCCLUDER'
-        ];
-
-        // Physics uses old single-geo return
-        // We need to support the new array return format
-        const geos = VmfGeometryBuilder.buildSolidGeometry(solid, true, PHYSICS_IGNORED);
-
-        for (const { geometry } of geos) {
-            if (geometry.attributes.position && geometry.attributes.position.count > 0) {
-                geometry.scale(0.02, 0.02, 0.02);
-                const posAttr = geometry.attributes.position;
-
-                const vertices: number[] = [];
-                const indices: number[] = [];
-                const vertsMap = new Map<string, number>();
-
-                for (let i = 0; i < posAttr.count; i++) {
-                    const x = posAttr.getX(i);
-                    const y = posAttr.getY(i);
-                    const z = posAttr.getZ(i);
-                    const key = `${x.toFixed(4)}_${y.toFixed(4)}_${z.toFixed(4)}`;
-
-                    let index = vertsMap.get(key);
-                    if (index === undefined) {
-                        index = vertices.length / 3;
-                        vertsMap.set(key, index);
-                        vertices.push(x, y, z);
-                    }
-                    indices.push(index);
-                }
-
-                if (indices.length >= 3) {
-                    const shape = new CANNON.Trimesh(vertices, indices);
-                    const body = new CANNON.Body({
-                        mass: 0,
-                        position: new CANNON.Vec3(0, 0, 0),
-                        shape: shape
-                    });
-                    this.world.addBody(body);
-                }
-            }
-        }
-    }
-
-    // Removed createDevTexture method as it is replaced by DevTextureGenerator usage
 
 }
