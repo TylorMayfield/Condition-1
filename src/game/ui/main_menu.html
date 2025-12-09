@@ -1,0 +1,89 @@
+<div id="menu-overlay">
+    <div class="menu-container">
+        <div class="menu-header">
+            <h1 class="game-title">CONDITION-1</h1>
+        </div>
+        
+        <div class="menu-content">
+            <!-- Sidebar Navigation -->
+            <div class="menu-sidebar">
+                <button class="menu-btn" id="btn-resume" style="display:none;">Resume Game</button>
+                <button class="menu-btn" id="btn-new-game">New Game / Maps</button>
+                <button class="menu-btn" id="btn-settings">Settings</button>
+                <button class="menu-btn" id="btn-credits">Credits</button>
+                <button class="menu-btn" id="btn-quit" style="margin-top: auto; border-color: #ef4444; color: #ef4444;">Exit to Desktop</button>
+            </div>
+
+            <!-- Panels -->
+            
+            <!-- Map Select Panel -->
+            <div class="menu-panel" id="panel-maps">
+                <h2 class="panel-title">Select Operation</h2>
+                <div class="map-grid" id="map-grid-container">
+                    <!-- Configured via JS -->
+                </div>
+            </div>
+
+            <!-- Settings Panel -->
+            <div class="menu-panel" id="panel-settings">
+                <h2 class="panel-title">Settings</h2>
+                
+                <!-- Settings Tabs -->
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('video')">Video</button>
+                    <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('audio')">Audio</button>
+                    <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('controls')">Controls</button>
+                </div>
+
+                <!-- Video Settings -->
+                <div id="settings-video" class="settings-tab">
+                    <div class="setting-group">
+                        <label class="setting-label">Field of View</label>
+                        <input type="range" id="setting-fov" min="60" max="110" value="75">
+                        <span id="value-fov">75</span>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">Mouse Sensitivity</label>
+                        <input type="range" id="setting-sens" min="0.1" max="5.0" step="0.1" value="1.0">
+                        <span id="value-sens">1.0</span>
+                    </div>
+                </div>
+
+                <!-- Audio Settings -->
+                <div id="settings-audio" class="settings-tab" style="display:none;">
+                    <div class="setting-group">
+                        <label class="setting-label">Master Volume</label>
+                        <input type="range" id="setting-vol-master" min="0" max="1" step="0.1">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">Music Volume</label>
+                        <input type="range" id="setting-vol-music" min="0" max="1" step="0.1">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">SFX Volume</label>
+                        <input type="range" id="setting-vol-sfx" min="0" max="1" step="0.1">
+                    </div>
+                </div>
+
+                <!-- Controls Settings -->
+                <div id="settings-controls" class="settings-tab" style="display:none;">
+                    <div class="keybind-grid" id="keybind-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                     <button class="menu-btn" id="btn-save-settings">Save Changes</button>
+                </div>
+            </div>
+
+            <!-- Credits Panel -->
+            <div class="menu-panel" id="panel-credits">
+                <h2 class="panel-title">Credits</h2>
+                <p>Developed for the Advanced Agentic Coding Project</p>
+                <p>Using Three.js, Cannon-es</p>
+            </div>
+
+        </div>
+    </div>
+</div>

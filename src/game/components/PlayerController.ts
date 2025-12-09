@@ -332,4 +332,8 @@ export class PlayerController {
     public isSprinting(): boolean {
         return this.game.input.getKey('ShiftLeft') && !this.isCrouching && this.isMoving();
     }
+
+    public setSensitivity(value: number) {
+        this.sensitivity = value;
+    }
 }

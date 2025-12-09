@@ -56,4 +56,10 @@ export class Player extends GameObject {
     private updateHUD() {
         // Old HUD logic disabled
     }
+
+    public setSensitivity(value: number) {
+        if (this.controller) {
+            this.controller.setSensitivity(value);
+        }
+    }
 }

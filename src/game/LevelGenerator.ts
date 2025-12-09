@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { Game } from '../engine/Game';
 import { GameObject } from '../engine/GameObject';
 import { VmfMapLoader } from './loaders/VmfMapLoader';
@@ -65,5 +66,25 @@ export class LevelGenerator {
      */
     public spawnPlayer(position?: THREE.Vector3): GameObject {
         return this.entitySpawner.spawnPlayer(position);
+    }
+    /**
+     * Generate a procedural test level if loading fails
+     */
+    public generate() {
+        console.log('Generating procedural test level...');
+        // Simple floor
+        const floorShape = new CANNON.Box(new CANNON.Vec3(50, 0.5, 50));
+        const floorBody = new CANNON.Body({ mass: 0, shape: floorShape });
+        floorBody.position.set(0, -0.5, 0);
+        this.game.world.addBody(floorBody);
+
+        const floorGeo = new THREE.BoxGeometry(100, 1, 100);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        floorMesh.position.copy(floorBody.position as any);
+        this.game.scene.add(floorMesh);
+
+        // Spawn Player
+        this.spawnPlayer(new THREE.Vector3(0, 2, 0));
     }
 }

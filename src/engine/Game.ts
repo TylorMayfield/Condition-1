@@ -16,6 +16,8 @@ import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
 import { BoidSystem } from '../game/BoidSystem';
 
+import { SettingsManager } from '../game/SettingsManager';
+
 export class Game {
     public renderer: THREE.WebGLRenderer;
     public scene: THREE.Scene;
@@ -25,6 +27,7 @@ export class Game {
     public isRunning: boolean = false;
 
     public input: Input;
+    public settingsManager: SettingsManager;
     public soundManager: SoundManager;
     private gameObjects: GameObject[] = [];
     public player!: Player; // Public reference for AI
@@ -81,7 +84,8 @@ export class Game {
 
         // Init Time & Input
         this.time = new Time();
-        this.input = new Input();
+        this.settingsManager = new SettingsManager();
+        this.input = new Input(this.settingsManager);
         this.soundManager = new SoundManager();
         this.roundManager = new RoundManager(this);
         this.weatherManager = new WeatherManager(this);
@@ -185,39 +189,24 @@ export class Game {
     }
 
     public togglePause() {
-        if (!this.input.getKey('Enter')) return; // Check actual key state if called from input? No, called from loop or UI.
-
-        // Use a simple cooldown or verify logic.
-        // Actually, better implementation: 
-        // We'll handle the key check closer to "Just Pressed" in loop.
-
+        // Toggle state
         this.isPaused = !this.isPaused;
-
-        const menu = document.getElementById('pause-menu');
-        const mapPicker = document.getElementById('map-picker-menu');
 
         if (this.isPaused) {
             this.input.unlockCursor();
-            if (menu) menu.style.display = 'flex';
-            if (mapPicker) mapPicker.style.display = 'none'; // Hide map picker if open
         } else {
             this.input.lockCursor();
-            if (menu) menu.style.display = 'none';
-            if (mapPicker) mapPicker.style.display = 'none'; // Hide map picker
         }
 
-        // Cooldown hack
-        (this.input as any).keys.set('Enter', false); // Force consume key
+        // Cooldown/Input consumption handled by Input system usually, 
+        // or the caller (MenuSystem) handles the toggle logic.
     }
 
     private loop() {
         if (!this.isRunning) return;
         requestAnimationFrame(() => this.loop());
 
-        // Pause Toggle
-        if (this.input.getKeyDown('Enter')) {
-            this.togglePause();
-        }
+
 
         if (this.isPaused) {
             this.render();

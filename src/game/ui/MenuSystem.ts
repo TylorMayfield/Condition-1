@@ -1,0 +1,245 @@
+import { Game } from '../../engine/Game';
+import { SettingsManager } from '../SettingsManager';
+// @ts-ignore
+import menuHtml from './main_menu.html?raw';
+// @ts-ignore
+import css from './menu_styles.css?inline';
+
+export class MenuSystem {
+    private game: Game;
+    private settingsManager: SettingsManager;
+    private container: HTMLElement;
+    private overlay: HTMLElement | null = null;
+
+    // State
+    private isVisible: boolean = false;
+    private isGameStarted: boolean = false;
+    private activePanel: string = '';
+
+    private availableMaps = [
+        'killhouse',
+        'de_dust2_d',
+        'de_train_d',
+        'de_chateau_d',
+        'cs_office_d',
+        'window_test'
+    ];
+
+    constructor(game: Game, settingsManager: SettingsManager) {
+        this.game = game;
+        this.settingsManager = settingsManager;
+
+        // Create container
+        this.container = document.createElement('div');
+        this.container.innerHTML = menuHtml;
+
+        // Inject styles
+        const style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+
+        document.body.appendChild(this.container);
+        this.overlay = document.getElementById('menu-overlay');
+
+        this.initEvents();
+        this.initSettingsUI();
+        this.initMapList();
+
+        // Start visible
+        this.show();
+    }
+
+    private initEvents() {
+        // Navigation Buttons
+        this.bindBtn('btn-resume', () => this.hide());
+        this.bindBtn('btn-new-game', () => this.showPanel('panel-maps'));
+        this.bindBtn('btn-settings', () => this.showPanel('panel-settings'));
+        this.bindBtn('btn-credits', () => this.showPanel('panel-credits'));
+        this.bindBtn('btn-quit', () => window.close());
+
+        // Settings Tabs
+        (window as any).showSettingsTab = (tabName: string) => {
+            document.querySelectorAll('.settings-tab').forEach(el => (el as HTMLElement).style.display = 'none');
+            document.getElementById(`settings-${tabName}`)!.style.display = 'block';
+        }
+
+        document.getElementById('btn-save-settings')?.addEventListener('click', () => {
+            // Video
+            const fov = parseFloat((document.getElementById('setting-fov') as HTMLInputElement).value);
+            const sens = parseFloat((document.getElementById('setting-sens') as HTMLInputElement).value);
+            this.settingsManager.setVideo('fov', fov);
+            this.settingsManager.setVideo('sensitivity', sens);
+
+            // Apply to game
+            this.game.camera.fov = fov;
+            this.game.camera.updateProjectionMatrix();
+            if (this.game.player) {
+                this.game.player.setSensitivity(sens);
+            }
+
+            alert('Settings Saved');
+        });
+
+        // Input Listeners
+        document.getElementById('setting-fov')?.addEventListener('input', (e) => {
+            document.getElementById('value-fov')!.textContent = (e.target as HTMLInputElement).value;
+        });
+        document.getElementById('setting-sens')?.addEventListener('input', (e) => {
+            document.getElementById('value-sens')!.textContent = (e.target as HTMLInputElement).value;
+        });
+    }
+
+    private bindBtn(id: string, callback: () => void) {
+        document.getElementById(id)?.addEventListener('click', callback);
+    }
+
+    private showPanel(id: string) {
+        document.querySelectorAll('.menu-panel').forEach(el => el.classList.remove('visible'));
+        document.getElementById(id)?.classList.add('visible');
+    }
+
+    public show() {
+        if (this.overlay) {
+            this.overlay.style.display = 'block';
+            this.isVisible = true;
+            this.game.isPaused = true;
+            this.game.input.unlockCursor();
+
+            // Update Resume button visibility
+            const resumeBtn = document.getElementById('btn-resume');
+            if (resumeBtn) resumeBtn.style.display = this.isGameStarted ? 'block' : 'none';
+        }
+    }
+
+    public hide() {
+        if (this.overlay) {
+            this.overlay.style.display = 'none';
+            this.isVisible = false;
+            this.game.isPaused = false;
+            this.game.input.lockCursor();
+            this.isGameStarted = true;
+        }
+    }
+
+    public toggle() {
+        if (this.isVisible) this.hide();
+        else this.show();
+    }
+
+    private initSettingsUI() {
+        const s = this.settingsManager.getSettings();
+
+        // Init Inputs
+        (document.getElementById('setting-fov') as HTMLInputElement).value = s.video.fov.toString();
+        document.getElementById('value-fov')!.textContent = s.video.fov.toString();
+
+        (document.getElementById('setting-sens') as HTMLInputElement).value = s.video.sensitivity.toString();
+        document.getElementById('value-sens')!.textContent = s.video.sensitivity.toString();
+
+        // Keybindings
+        const list = document.getElementById('keybind-list');
+        if (list) {
+            list.innerHTML = '';
+            for (const [action, code] of Object.entries(s.controls)) {
+                const row = document.createElement('div');
+                row.className = 'keybind-row';
+                row.innerHTML = `
+                    <span>${action}</span>
+                    <button class="keybind-btn" data-action="${action}">${code}</button>
+                `;
+                list.appendChild(row);
+
+                // Binding Logic
+                const btn = row.querySelector('button');
+                btn?.addEventListener('click', () => {
+                    btn.textContent = 'Press Key...';
+                    btn.classList.add('listening');
+
+                    const listenHandler = (e: KeyboardEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const newCode = e.code;
+                        this.settingsManager.setControl(action, newCode);
+                        btn.textContent = newCode;
+                        btn.classList.remove('listening');
+
+                        window.removeEventListener('keydown', listenHandler);
+                    };
+
+                    window.addEventListener('keydown', listenHandler, { once: true });
+                });
+            }
+        }
+    }
+
+    private initMapList() {
+        const grid = document.getElementById('map-grid-container');
+        if (!grid) return;
+
+        grid.innerHTML = '';
+        this.availableMaps.forEach(map => {
+            const card = document.createElement('div');
+            card.className = 'map-card';
+            card.innerHTML = `
+                <div class="map-preview">
+                    <span>${map}</span>
+                </div>
+                <div class="map-info">
+                    <div class="map-name">${this.formatMapName(map)}</div>
+                </div>
+            `;
+
+            card.addEventListener('click', () => {
+                this.loadMap(map);
+            });
+
+            grid.appendChild(card);
+        });
+
+        // Add Map Builder Card
+        const mbCard = document.createElement('div');
+        mbCard.className = 'map-card';
+        mbCard.style.border = '1px dashed #4ade80';
+        mbCard.innerHTML = `
+            <div class="map-preview" style="background: rgba(74, 222, 128, 0.1); color: #4ade80;">
+                <span style="font-size: 24px;">🛠️</span>
+            </div>
+            <div class="map-info">
+                <div class="map-name" style="color: #4ade80;">Map Builder</div>
+            </div>
+        `;
+        mbCard.addEventListener('click', () => {
+            import('../maps/MapBuilder').then(({ MapBuilder }) => {
+                import('../maps/MapBuilderUI').then(({ MapBuilderUI }) => {
+                    const mb = new MapBuilder(30, 30);
+                    const mbui = new MapBuilderUI(mb);
+                    this.hide();
+                    mbui.show();
+                });
+            });
+        });
+        grid.appendChild(mbCard);
+    }
+
+    private formatMapName(name: string) {
+        return name.replace(/_/g, ' ').toUpperCase();
+    }
+
+    private async loadMap(mapName: string) {
+        console.log(`Loading map: ${mapName}`);
+
+        if ((this.game as any).levelGenerator) {
+            const lg = (this.game as any).levelGenerator;
+            await lg.loadMap(mapName);
+            this.hide();
+        } else {
+            console.error("LevelGenerator not found on game instance");
+        }
+    }
+
+    // Set level generator reference
+    public setLevelGenerator(lg: any) {
+        (this.game as any).levelGenerator = lg;
+    }
+}
