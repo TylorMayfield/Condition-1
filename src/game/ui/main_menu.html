@@ -3,7 +3,7 @@
         <div class="menu-header">
             <h1 class="game-title">CONDITION-1</h1>
         </div>
-        
+
         <div class="menu-content">
             <!-- Sidebar Navigation -->
             <div class="menu-sidebar">
@@ -11,11 +11,12 @@
                 <button class="menu-btn" id="btn-new-game">New Game / Maps</button>
                 <button class="menu-btn" id="btn-settings">Settings</button>
                 <button class="menu-btn" id="btn-credits">Credits</button>
-                <button class="menu-btn" id="btn-quit" style="margin-top: auto; border-color: #ef4444; color: #ef4444;">Exit to Desktop</button>
+                <button class="menu-btn" id="btn-quit"
+                    style="margin-top: auto; border-color: #ef4444; color: #ef4444;">Exit to Desktop</button>
             </div>
 
             <!-- Panels -->
-            
+
             <!-- Map Select Panel -->
             <div class="menu-panel" id="panel-maps">
                 <h2 class="panel-title">Select Operation</h2>
@@ -27,12 +28,13 @@
             <!-- Settings Panel -->
             <div class="menu-panel" id="panel-settings">
                 <h2 class="panel-title">Settings</h2>
-                
+
                 <!-- Settings Tabs -->
                 <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                     <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('video')">Video</button>
                     <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('audio')">Audio</button>
-                    <button class="menu-btn" style="padding: 10px;" onclick="showSettingsTab('controls')">Controls</button>
+                    <button class="menu-btn" style="padding: 10px;"
+                        onclick="showSettingsTab('controls')">Controls</button>
                 </div>
 
                 <!-- Video Settings -->
@@ -71,17 +73,28 @@
                         <!-- Populated by JS -->
                     </div>
                 </div>
-                
+
                 <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-                     <button class="menu-btn" id="btn-save-settings">Save Changes</button>
+                    <button class="menu-btn" id="btn-save-settings">Save Changes</button>
                 </div>
             </div>
 
             <!-- Credits Panel -->
             <div class="menu-panel" id="panel-credits">
                 <h2 class="panel-title">Credits</h2>
-                <p>Developed for the Advanced Agentic Coding Project</p>
-                <p>Using Three.js, Cannon-es</p>
+
+                <h3 style="color: #a5b4fc; margin-top: 0;">Lead Developer</h3>
+                <p style="font-size: 18px; margin-bottom: 30px;">Tylor Mayfield</p>
+
+                <h3 style="color: #a5b4fc;">Powered By</h3>
+                <ul style="list-style: none; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <li>Three.js</li>
+                    <li>Cannon-es</li>
+                    <li>Vite</li>
+                    <li>TypeScript</li>
+                    <li>Electron</li>
+                    <li>Vitest</li>
+                </ul>
             </div>
 
         </div>
