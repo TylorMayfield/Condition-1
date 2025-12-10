@@ -21,9 +21,9 @@ export class Enemy extends GameObject {
     // Identity
     public name: string;
     public score: number = 0;
-    
+
     private static BOT_NAMES = [
-        "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon", 
+        "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon",
         "Wolf", "Bear", "Tiger", "Fox", "Ghost", "Shadow",
         "Ranger", "Hunter", "Stalker", "Spectre"
     ];
@@ -42,7 +42,9 @@ export class Enemy extends GameObject {
         // Visuals (Compound Body)
         this.mesh = new THREE.Group();
         // Mesh will be synced to body center by GameObject.update()
-        this.mesh.position.copy(position);
+        // Apply spawn offset to avoid embedding in walls
+        const spawnOffset = new THREE.Vector3(position.x, position.y + 1.0, position.z);
+        this.mesh.position.copy(spawnOffset);
         this.mesh.castShadow = true;
 
         const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
@@ -96,14 +98,13 @@ export class Enemy extends GameObject {
         const shape = new CANNON.Sphere(radius);
         this.body = new CANNON.Body({
             mass: 5,
-            position: new CANNON.Vec3(position.x, position.y, position.z),
+            position: new CANNON.Vec3(position.x, position.y + 0.5, position.z),
             shape: shape,
             fixedRotation: true,
             material: new CANNON.Material({ friction: 0, restitution: 0 })
         });
-        this.body.linearDamping = 0.9; // Drag
+        this.body.linearDamping = 0.1; // Low damping to allow movement
         this.body.angularFactor.set(0, 0, 0); // No rotation allowed physically
-        this.body.linearDamping = 0.9; // Drag
         // this.game.world.addBody(this.body); // Handled by Game.addGameObject
 
         // AI
@@ -158,9 +159,9 @@ export class Enemy extends GameObject {
         // transform control: attach to scene, maintain world transform
         const parts: THREE.Object3D[] = [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg];
         parts.forEach(part => {
-             this.game.scene.attach(part);
+            this.game.scene.attach(part);
         });
-        
+
         // Remove the container mesh (Group) as it is now empty/useless
         if (this.mesh) this.game.scene.remove(this.mesh);
 
@@ -193,14 +194,14 @@ export class Enemy extends GameObject {
         if (this.mesh) {
             this.game.scene.remove(this.mesh);
         }
-        
+
         // Clean up loose parts if ragdolled
         if (this.isRagdoll) {
             [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg].forEach(p => {
-                 this.game.scene.remove(p);
-                 if (p.geometry) p.geometry.dispose();
+                this.game.scene.remove(p);
+                if (p.geometry) p.geometry.dispose();
             });
-            
+
             this.ragdollBodies.forEach(b => this.game.world.removeBody(b));
             this.ragdollConstraints.forEach(c => this.game.world.removeConstraint(c));
         }
@@ -240,12 +241,12 @@ export class Enemy extends GameObject {
         }
 
         // super.update(dt); // Don't use default sync, we want manual control over rotation
-        
+
         // Sync graphics with physics (Position Only)
         if (this.body && this.mesh) {
             this.mesh.position.copy(this.body.position as any);
             // Do NOT sync rotation. Mesh rotation is handled by AI (lookAt).
-            
+
             // Force body to be upright (Physics Fix)
             this.body.quaternion.set(0, 0, 0, 1);
             this.body.angularVelocity.set(0, 0, 0);
@@ -263,7 +264,7 @@ export class Enemy extends GameObject {
     public setProne(prone: boolean) {
         this.isProne = prone;
     }
-    
+
     private isProne: boolean = false;
 
     private animate(dt: number) {
@@ -284,9 +285,9 @@ export class Enemy extends GameObject {
         this.head.rotation.set(0, 0, 0);
         this.bodyMesh.rotation.set(0, 0, 0);
         if (this.mesh) this.mesh.rotation.x = 0; // Ensure base group is upright
-        
+
         // Reset body bob
-        this.bodyMesh.position.y = 0.6; 
+        this.bodyMesh.position.y = 0.6;
         this.head.position.y = 1.25;
         this.bodyMesh.position.z = 0;
 
@@ -304,18 +305,18 @@ export class Enemy extends GameObject {
             this.leftLeg.rotation.x = -Math.PI / 2;
             this.leftLeg.position.y = -0.3;
             this.leftLeg.position.z = -0.8;
-            
+
             this.rightLeg.rotation.x = -Math.PI / 2;
             this.rightLeg.position.y = -0.3;
             this.rightLeg.position.z = -0.8;
 
             if (isMoving) {
-                 // Crawl visual
-                 const crawl = Math.sin(this.time);
-                 this.leftArm.rotation.z = crawl * 0.5;
-                 this.rightArm.rotation.z = -crawl * 0.5;
-                 this.leftLeg.rotation.z = -crawl * 0.2;
-                 this.rightLeg.rotation.z = crawl * 0.2;
+                // Crawl visual
+                const crawl = Math.sin(this.time);
+                this.leftArm.rotation.z = crawl * 0.5;
+                this.rightArm.rotation.z = -crawl * 0.5;
+                this.leftLeg.rotation.z = -crawl * 0.2;
+                this.rightLeg.rotation.z = crawl * 0.2;
             }
             return; // Skip standard walking
         }
@@ -324,7 +325,7 @@ export class Enemy extends GameObject {
         if (isMoving) {
             const walkCycle = Math.sin(this.time);
             const cosCycle = Math.cos(this.time);
-            
+
             // Legs swing
             this.leftLeg.rotation.x = walkCycle * 0.6;
             this.rightLeg.rotation.x = -walkCycle * 0.6;
@@ -332,7 +333,7 @@ export class Enemy extends GameObject {
             // Arms swing (opposite to legs)
             this.leftArm.rotation.x = -walkCycle * 0.4;
             this.rightArm.rotation.x = walkCycle * 0.4;
-            
+
             // Body Bob
             this.bodyMesh.position.y = 0.6 + Math.abs(cosCycle) * 0.05;
             this.head.position.y = 1.25 + Math.abs(cosCycle) * 0.05;
@@ -340,14 +341,14 @@ export class Enemy extends GameObject {
 
         // Posture Overrides based on State
         const aiState = this.ai.getState();
-        
+
         // Combat Stance (Aiming)
         // If Attacking, Chasing, or Alert
-        if (aiState === 2 || aiState === 1 || aiState === 6 || aiState === 7 || aiState === 4) { 
+        if (aiState === 2 || aiState === 1 || aiState === 6 || aiState === 7 || aiState === 4) {
             // Bring right arm up to aim
             this.rightArm.rotation.x = -Math.PI / 2; // Point forward
             this.rightArm.rotation.z = -0.1; // Slight tilt
-            
+
             // Left arm supports
             this.leftArm.rotation.x = -Math.PI / 2.2;
             this.leftArm.rotation.z = 0.3; // Angle in
@@ -358,8 +359,8 @@ export class Enemy extends GameObject {
 
             // If moving while aiming, reduce arm swing
             if (isMoving) {
-                 this.leftArm.rotation.x += Math.sin(this.time) * 0.1;
-                 this.rightArm.rotation.x += Math.sin(this.time) * 0.1;
+                this.leftArm.rotation.x += Math.sin(this.time) * 0.1;
+                this.rightArm.rotation.x += Math.sin(this.time) * 0.1;
             }
         }
     }

@@ -72,25 +72,33 @@ export class LevelGenerator {
         // Let's check bake-navmesh.ts behavior again. 
         // bake-navmesh.ts: const nameWithoutExt = filename.replace('.vmf', '');
         // const outputFilename = `${nameWithoutExt}.navmesh.json`;
-        
+
         const cleanName = mapName.replace('.vmf', '');
-        
+
         console.log(`Initializing Navmesh for: ${cleanName}`);
         setTimeout(() => {
-            if (this.game.navigationSystem) {
-                this.game.navigationSystem.init(cleanName);
-            }
-            
+
+
             // Initialize Recast Navigation (industry-standard navmesh)
-            this.game.recastNav.initialize().then(() => {
-                console.log('[LevelGen] Generating Recast navmesh from scene...');
+            this.game.recastNav.initialize().then(async () => {
+                // Try to load pre-baked first
+                const bakedUrl = `${cleanName}.navmesh.bin`;
+                const loaded = await this.game.recastNav.loadFromFile(bakedUrl);
+
+                if (loaded) {
+                    console.log('[LevelGen] Using pre-baked navmesh.');
+                    this.game.recastNav.setDebugDraw(true, false);
+                    return;
+                }
+
+                console.log('[LevelGen] Generating Recast navmesh from scene (Runtime Fallback)...');
                 const success = this.game.recastNav.generateFromScene();
                 if (success) {
                     console.log('[LevelGen] Recast navmesh ready!');
                     // Enable debug visualization
                     this.game.recastNav.setDebugDraw(true);
                 } else {
-                    console.warn('[LevelGen] Recast navmesh generation failed, falling back to custom system');
+                    console.error('[LevelGen] Recast navmesh generation failed! AI will be disabled.');
                 }
             });
         }, 500);
@@ -168,6 +176,9 @@ export class LevelGenerator {
         // 4. Reset Managers
         // (Skybox, Weather, etc might need reset)
         this.game.skyboxManager.reset();
+        if (this.game.recastNav) {
+            this.game.recastNav.reset();
+        }
     }
 
     /**

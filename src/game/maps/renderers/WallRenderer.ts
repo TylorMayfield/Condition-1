@@ -106,7 +106,7 @@ export class WallRenderer {
 
     private createWall(pos: THREE.Vector3, tileSize: number, direction: 'north' | 'south' | 'east' | 'west', tileData: TileData): void {
         const wallHeight = 3.0;
-        const wallThickness = 0.2;
+        const wallThickness = 0.8;
 
         let wallX = pos.x;
         let wallZ = pos.z;

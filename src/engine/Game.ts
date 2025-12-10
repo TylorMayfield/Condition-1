@@ -16,7 +16,7 @@ import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
 import { BoidSystem } from '../game/BoidSystem';
-import { NavigationSystem } from '../game/ai/NavigationSystem';
+
 import { RecastNavigation } from '../game/ai/RecastNavigation';
 
 import { SettingsManager } from '../game/SettingsManager';
@@ -48,7 +48,7 @@ export class Game {
     public postProcessingManager?: PostProcessingManager;
     public boidSystem?: BoidSystem;
     public availableSpawns: { T: THREE.Vector3[], CT: THREE.Vector3[] } = { T: [], CT: [] };
-    public navigationSystem: NavigationSystem;
+
     public recastNav: RecastNavigation;
     // @ts-ignore
     public levelGenerator: any; // Type as any to avoid circular import with LevelGenerator
@@ -97,7 +97,7 @@ export class Game {
         this.settingsManager = new SettingsManager();
         this.input = new Input(this.settingsManager);
         this.soundManager = new SoundManager();
-        
+
         // Init Game Mode (Default to TDM)
         this.gameMode = new TeamDeathmatchGameMode(this);
 
@@ -124,9 +124,9 @@ export class Game {
             this.camera
         );
 
-        this.navigationSystem = new NavigationSystem(this);
+
         this.recastNav = new RecastNavigation(this);
-        
+
         // Init HUD Scene for Weapon Overlay
         this.sceneHUD = new THREE.Scene();
         this.cameraHUD = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -216,12 +216,12 @@ export class Game {
         if (this.isRunning) return;
         this.isRunning = true;
         this.input.lockCursor(); // Start locked
-        
+
         // Start Game Mode
         this.gameMode.init();
 
         // Build Navigation Graph is now handled by LevelGenerator.loadMap()
-        
+
         this.loop();
     }
 

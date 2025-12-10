@@ -8,7 +8,7 @@ export class HUDManager {
     // Elements
     private healthDisplay: HTMLDivElement;
     private ammoDisplay: HTMLDivElement;
-    
+
     private fpsDisplay: HTMLDivElement;
     private posDisplay: HTMLDivElement;
     private velDisplay: HTMLDivElement;
@@ -25,9 +25,13 @@ export class HUDManager {
     private timeElapsed: number = 0;
     private prevPos: THREE.Vector3 = new THREE.Vector3();
 
+    // AI Debug
+    private debugAIEnabled: boolean = false;
+    private aiDebugContainer: HTMLDivElement;
+
     // Pause Menu
     private pauseMenu: HTMLDivElement;
-    private bakeButton: HTMLButtonElement;
+
 
     constructor(game: Game) {
         this.game = game;
@@ -57,14 +61,27 @@ export class HUDManager {
         this.velDisplay = this.createVelDisplay();
         this.createVignette();
 
+        this.posDisplay = this.createPosDisplay();
+        this.velDisplay = this.createVelDisplay();
+        this.createVignette();
+
+        this.aiDebugContainer = document.createElement('div');
+        this.aiDebugContainer.style.position = 'absolute';
+        this.aiDebugContainer.style.top = '0';
+        this.aiDebugContainer.style.left = '0';
+        this.aiDebugContainer.style.width = '100%';
+        this.aiDebugContainer.style.height = '100%';
+        this.aiDebugContainer.style.pointerEvents = 'none';
+        this.container.appendChild(this.aiDebugContainer);
+
         this.scoreboard = this.createScoreboardDisplay();
-        
+
         this.navDisplay = this.createNavDisplay();
 
         // Pause Menu
         this.pauseMenu = this.createPauseMenu();
         // @ts-ignore
-        this.bakeButton = this.pauseMenu.querySelector('#bake-btn');
+
     }
 
     private createPauseMenu(): HTMLDivElement {
@@ -100,21 +117,8 @@ export class HUDManager {
 
         const bakeBtn = div.querySelector('#bake-btn') as HTMLButtonElement;
         bakeBtn.onclick = () => {
-            console.log("Baking Navmesh...");
-            const json = this.game.navigationSystem.serialize();
-            
-            // Download file
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'navmesh.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            alert("Navmesh Baked & Downloaded! Move 'navmesh.json' to the public folder.");
+            console.log("Navmesh baking via HUD is currently disabled with Recast.");
+            alert("Navmesh baking via HUD is disabled. Use the build tools.");
         };
 
         return div;
@@ -130,7 +134,7 @@ export class HUDManager {
         this.container.appendChild(div);
         return div;
     }
-    
+
     private createAmmoDisplay(): HTMLDivElement {
         const div = document.createElement('div');
         div.style.position = 'absolute';
@@ -282,7 +286,7 @@ export class HUDManager {
         div.style.minWidth = '400px';
         div.style.display = 'none'; // Hidden by default
         div.style.border = '1px solid #00ff00';
-        
+
         // Header
         div.innerHTML = `
             <h2 style="text-align: center; border-bottom: 1px solid #00ff00; padding-bottom: 10px;">MISSION STATUS</h2>
@@ -299,7 +303,7 @@ export class HUDManager {
                 </tbody>
             </table>
         `;
-        
+
         this.container.appendChild(div);
         return div;
     }
@@ -312,15 +316,16 @@ export class HUDManager {
             this.frameCount = 0;
             this.timeElapsed = 0;
         }
-        
+
         // Update Nav Stats
-        if (this.navDisplay && this.game.navigationSystem) {
-             // Access private nodes via cast or expose getter. 
-             // Assuming I add getter or use cast.
-             const nodeCount = (this.game.navigationSystem as any).nodes.length;
-             this.navDisplay.innerText = `NAV: ${nodeCount} Nodes`;
-             if (nodeCount === 0) this.navDisplay.style.color = 'red';
-             else this.navDisplay.style.color = '#00ff00';
+        // Update Nav Stats
+        if (this.navDisplay && this.game.recastNav) {
+            const agentCount = this.game.recastNav.getRegisteredAgentCount();
+            this.navDisplay.innerText = `NAV: Recast Active (${agentCount} Agents)`;
+            this.navDisplay.style.color = '#00ff00';
+        } else if (this.navDisplay) {
+            this.navDisplay.innerText = `NAV: Recast Missing`;
+            this.navDisplay.style.color = 'red';
         }
 
         // Display Pause Menu
@@ -380,6 +385,90 @@ export class HUDManager {
 
         // Update Compass
         this.updateCompass();
+        // Update Compass
+        this.updateCompass();
+
+        // AI Debug Toggle
+        if (this.game.input.getKeyDown('KeyP')) {
+            this.debugAIEnabled = !this.debugAIEnabled;
+            // Also toggle Recast debug draw
+            if (this.game.recastNav) {
+                // Keep navmesh on (true), toggle agents? Or just use overlay?
+                // User asked for overlay. Let's keep recast debug separate or sync?
+                // Let's just use overlay for now.
+                console.log(`AI Debug Overlay: ${this.debugAIEnabled}`);
+            }
+        }
+
+        if (this.debugAIEnabled) {
+            this.updateAIDebugOverlay();
+        } else {
+            this.aiDebugContainer.innerHTML = '';
+        }
+    }
+
+    private updateAIDebugOverlay() {
+        this.aiDebugContainer.innerHTML = '';
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        // Iterate Game Objects
+        for (const go of this.game.getGameObjects()) {
+            // Check if it's an Enemy (has 'ai' property)
+            // Need to cast or check type.
+            const enemy = go as any;
+            if (enemy.ai && enemy.body) {
+                const ai = enemy.ai;
+                const pos = enemy.body.position;
+                const vec = new THREE.Vector3(pos.x, pos.y + 2.2, pos.z); // Above head
+
+                // Project to Screen
+                vec.project(this.game.camera);
+
+                // Check if in front of camera
+                if (vec.z < 1) {
+                    const x = (vec.x * 0.5 + 0.5) * width;
+                    const y = (-(vec.y * 0.5) + 0.5) * height;
+
+                    const label = document.createElement('div');
+                    label.style.position = 'absolute';
+                    label.style.left = `${x}px`;
+                    label.style.top = `${y}px`;
+                    label.style.transform = 'translate(-50%, -100%)'; // Center bottom
+                    label.style.color = '#fff';
+                    label.style.fontSize = '12px';
+                    label.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                    label.style.padding = '2px 5px';
+                    label.style.borderRadius = '3px';
+                    label.style.whiteSpace = 'nowrap';
+                    label.style.border = '1px solid #fff';
+
+                    // Map State to String
+                    const states = ['Idle', 'Chase', 'Attack', 'Roam', 'Alert', 'TakeCover', 'Flank', 'Advance', 'Follow'];
+                    const stateName = states[ai.state] || 'Unknown';
+
+                    // Velocity info
+                    let vel = '0';
+                    if (this.game.recastNav && ai.entityId) {
+                        const v = this.game.recastNav.getAgentVelocity(ai.entityId);
+                        if (v) vel = v.length().toFixed(2);
+                    }
+
+                    const targetName = ai.target ? (ai.target.name || 'Target') : 'None';
+
+                    label.innerHTML = `
+                        <b>${enemy.name || 'Enemy'}</b> [${ai.entityId}]<br>
+                        State: <span style="color:yellow">${stateName}</span><br>
+                        Target: ${targetName}<br>
+                        Vel: ${vel} m/s<br>
+                        HP: ${enemy.health}
+                     `;
+
+                    this.aiDebugContainer.appendChild(label);
+                }
+            }
+        }
     }
 
     private updateScoreboard() {
@@ -389,7 +478,7 @@ export class HUDManager {
 
         // Get Data
         const data = this.game.gameMode.getScoreboardData();
-        
+
         // Sort by Score (Desc) then Name
         data.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
