@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../Enemy';
-import { GameObject } from '../../engine/GameObject';
+
 
 export interface CoverPoint {
     position: THREE.Vector3;
@@ -32,14 +32,14 @@ export class AICover {
             this.owner.body.position.z
         );
 
-        const bestCover: CoverPoint | null = null;
+        let _bestCover: CoverPoint | null = null;
         let bestScore = -1;
 
         // Search for nearby obstacles that could provide cover
         const potentialCovers: CoverPoint[] = [];
 
         // Check all game objects for potential cover
-        for (const obj of this.game.gameObjects) {
+        for (const obj of this.game.getGameObjects()) {
             if (!obj.body || obj === this.owner) continue;
 
             // Skip the player and other enemies
@@ -65,7 +65,7 @@ export class AICover {
             const coverPositions = this.findCoverPositionsAroundObstacle(objPos, threatPosition, ownerPos);
 
             for (const coverPos of coverPositions) {
-                const quality = this.evaluateCoverQuality(coverPos, objPos, threatPosition, ownerPos);
+                const quality = this.evaluateCoverQuality(coverPos, objPos, threatPosition);
                 if (quality > 0.3) { // Only consider decent cover
                     potentialCovers.push({
                         position: coverPos,
@@ -154,7 +154,6 @@ export class AICover {
         coverPos: THREE.Vector3,
         obstaclePos: THREE.Vector3,
         threatPos: THREE.Vector3,
-        ownerPos: THREE.Vector3
     ): number {
         let quality = 0;
 
@@ -175,7 +174,7 @@ export class AICover {
         }
 
         // 3. Check if we can still see the threat (for shooting back)
-        const coverToThreat = new THREE.Vector3().subVectors(threatPos, coverPos);
+        const _coverToThreat = new THREE.Vector3().subVectors(threatPos, coverPos);
         const ray = new CANNON.Ray(
             new CANNON.Vec3(coverPos.x, coverPos.y + 0.5, coverPos.z),
             new CANNON.Vec3(threatPos.x, threatPos.y + 0.5, threatPos.z)
