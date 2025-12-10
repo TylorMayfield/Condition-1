@@ -85,7 +85,12 @@ export class EnemyAI {
     public useRecast: boolean = false;
 
     private tryRegisterWithCrowd(): void {
-        if (!this.game.recastNav) return;
+        // Check if recastNav exists AND has a navmesh generated
+        if (!this.game.recastNav || !this.game.recastNav.getCrowd()) {
+            // Recast not ready yet, retry in 500ms
+            setTimeout(() => this.tryRegisterWithCrowd(), 500);
+            return;
+        }
         
         const pos = this.getOwnerPosition();
         if (!pos) {
