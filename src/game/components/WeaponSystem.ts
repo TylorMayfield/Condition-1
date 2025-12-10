@@ -19,13 +19,15 @@ export class WeaponSystem extends Weapon {
     constructor(game: Game) {
         super(game, null); // Owner set later or ignored for Player singleton usage
         this.createWeaponModel();
-        this.game.scene.add(this.mesh);
+        // Add to HUD scene instead
+        this.game.sceneHUD.add(this.mesh);
 
         // Stats overrides
         this.fireRate = 100;
         this.damage = 25;
         this.muzzleVelocity = 150;
     }
+    
 
     private createWeaponModel() {
         // Realistic Rifle Model (Assault Rifle Style)
@@ -84,8 +86,12 @@ export class WeaponSystem extends Weapon {
     }
 
     public update(dt: number, camera: THREE.Camera, controller: PlayerController) {
+        // Update HUD Camera to match World Camera Rotation (look direction)
+        const hudCamera = this.game.cameraHUD;
+        hudCamera.quaternion.copy(camera.quaternion);
+
         // Handle ADS Input
-        this.isAiming = this.game.input.getMouseButton(2); // Right mouse button
+        this.isAiming = this.game.input.getMouseButton(2); 
 
         // Smooth ADS transition
         const adsSpeed = 10;
@@ -93,7 +99,7 @@ export class WeaponSystem extends Weapon {
         this.adsAmount += (targetAds - this.adsAmount) * adsSpeed * dt;
         this.adsAmount = Math.max(0, Math.min(1, this.adsAmount));
 
-        // Interpolate FOV
+        // Interpolate FOV (Main Camera Only)
         if (camera instanceof THREE.PerspectiveCamera) {
             const targetFOV = this.normalFOV - (this.normalFOV - this.adsFOV) * this.adsAmount;
             camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, adsSpeed * dt);
@@ -104,7 +110,7 @@ export class WeaponSystem extends Weapon {
         this.currentRecoil.x = THREE.MathUtils.lerp(this.currentRecoil.x, 0, this.recoilRecovery * 60 * dt);
         this.currentRecoil.y = THREE.MathUtils.lerp(this.currentRecoil.y, 0, this.recoilRecovery * 60 * dt);
 
-        // Calculate Sway (reduced when aiming)
+        // Calculate Sway
         this.swayTime += dt;
         let swayAmount = 0;
         let swaySpeed = 0;
@@ -116,15 +122,14 @@ export class WeaponSystem extends Weapon {
             swayAmount = 0.02;
             swaySpeed = 10;
         } else {
-            swayAmount = 0.002; // Breathing
+            swayAmount = 0.002;
             swaySpeed = 2;
         }
 
-        // Reduce sway when aiming
         swayAmount *= (1 - this.adsAmount * 0.8);
 
         const swayX = Math.sin(this.swayTime * swaySpeed) * swayAmount;
-        const swayY = Math.abs(Math.cos(this.swayTime * swaySpeed * 2)) * swayAmount; // Unilateral bob
+        const swayY = Math.abs(Math.cos(this.swayTime * swaySpeed * 2)) * swayAmount;
 
         // Reload Animation
         let reloadRotation = 0;
@@ -132,30 +137,20 @@ export class WeaponSystem extends Weapon {
 
         if (this.isReloading) {
             const progress = this.getReloadProgress();
+            const easeInOut = (t: number): number => { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; };
+            // const easedProgress = easeInOut(progress);
 
-            // Easing function for smooth animation (ease-in-out)
-            const easeInOut = (t: number): number => {
-                return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-            };
-
-            const easedProgress = easeInOut(progress);
-
-            // Stage 1: Tilt down and pull back (0-40% of reload)
             if (progress < 0.4) {
                 const stageProgress = progress / 0.4;
                 const easedStage = easeInOut(stageProgress);
-                reloadRotation = -Math.PI / 3 * easedStage; // Tilt down 60 degrees
-                reloadPositionOffset.z = 0.15 * easedStage; // Pull back
-                reloadPositionOffset.y = -0.1 * easedStage; // Slight downward movement
-            }
-            // Stage 2: Hold position (40-60% of reload)
-            else if (progress < 0.6) {
+                reloadRotation = -Math.PI / 3 * easedStage;
+                reloadPositionOffset.z = 0.15 * easedStage;
+                reloadPositionOffset.y = -0.1 * easedStage;
+            } else if (progress < 0.6) {
                 reloadRotation = -Math.PI / 3;
                 reloadPositionOffset.z = 0.15;
                 reloadPositionOffset.y = -0.1;
-            }
-            // Stage 3: Return to normal position (60-100% of reload)
-            else {
+            } else {
                 const stageProgress = (progress - 0.6) / 0.4;
                 const easedStage = easeInOut(stageProgress);
                 reloadRotation = -Math.PI / 3 * (1 - easedStage);
@@ -164,9 +159,9 @@ export class WeaponSystem extends Weapon {
             }
         }
 
-        // Sync weapon to camera with offsets
-        this.mesh.position.copy(camera.position);
-        this.mesh.quaternion.copy(camera.quaternion);
+        // Position Weapon relative to HUD Camera (at 0,0,0)
+        this.mesh.position.set(0, 0, 0); 
+        this.mesh.quaternion.copy(hudCamera.quaternion);
 
         // Interpolate between hip and ADS position
         const currentBasePos = this.basePosition.clone().lerp(this.adsPosition, this.adsAmount);
@@ -175,7 +170,7 @@ export class WeaponSystem extends Weapon {
         const offset = currentBasePos.clone();
         offset.x += swayX;
         offset.y += swayY;
-        offset.z += this.currentRecoil.y * 0.1; // Kickback
+        offset.z += this.currentRecoil.y * 0.1;
 
         // Apply Reload Position Offset
         offset.add(reloadPositionOffset);

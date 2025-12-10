@@ -36,6 +36,7 @@ export class LevelGenerator {
             if (await VmfMapLoader.check(mapName)) {
                 console.log(`Loading as VMF: ${mapName}`);
                 await this.vmfLoader.load(mapName);
+                this.initNavmesh(mapName); // Call helper
                 return;
             }
 
@@ -44,6 +45,7 @@ export class LevelGenerator {
                 console.log(`Loading as BrushMap: ${mapName}`);
                 const brushMap = await this.brushMapLoader.load(mapName);
                 this.entitySpawner.spawnFromBrushMap(brushMap);
+                // this.initNavmesh(mapName); // TODO: Support BrushMap navmesh
                 return;
             }
 
@@ -61,6 +63,37 @@ export class LevelGenerator {
             console.error(`Failed to load map: ${mapName}`, error);
             throw error;
         }
+    }
+
+    private initNavmesh(mapName: string) {
+        // Strip .vmf extension if present for clean matching
+        // The bake script outputs [mapname].navmesh.json (where mapname usually has no ext or user inputs it)
+        // If mapName is 'cs_office_d.vmf', bake script (if using default args behavior) might have used 'cs_office_d.vmf' as name?
+        // Let's check bake-navmesh.ts behavior again. 
+        // bake-navmesh.ts: const nameWithoutExt = filename.replace('.vmf', '');
+        // const outputFilename = `${nameWithoutExt}.navmesh.json`;
+        
+        const cleanName = mapName.replace('.vmf', '');
+        
+        console.log(`Initializing Navmesh for: ${cleanName}`);
+        setTimeout(() => {
+            if (this.game.navigationSystem) {
+                this.game.navigationSystem.init(cleanName);
+            }
+            
+            // Initialize Recast Navigation (industry-standard navmesh)
+            this.game.recastNav.initialize().then(() => {
+                console.log('[LevelGen] Generating Recast navmesh from scene...');
+                const success = this.game.recastNav.generateFromScene();
+                if (success) {
+                    console.log('[LevelGen] Recast navmesh ready!');
+                    // Enable debug visualization
+                    this.game.recastNav.setDebugDraw(true);
+                } else {
+                    console.warn('[LevelGen] Recast navmesh generation failed, falling back to custom system');
+                }
+            });
+        }, 500);
     }
 
     /**

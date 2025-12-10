@@ -18,9 +18,12 @@ export class PlayerController {
     // State
     private rotation: { x: number, y: number } = { x: 0, y: 0 };
     private isCrouching: boolean = false;
-    private crouchAmount: number = 0; // 0 = standing, 1 = fully crouched
-    private targetCrouch: number = 0; // Target crouch value
-    private lean: number = 0; // -1 (left) to 1 (right)
+    private isProne: boolean = false; // New Prone state
+    private crouchAmount: number = 0; // 0 = standing, 1 = crouching/prone
+    private proneAmount: number = 0; // 0 = not prone, 1 = fully prone
+    private targetCrouch: number = 0; 
+    private lastCrouchTime: number = 0; // For double-tap detection
+    private lean: number = 0; 
     private targetLean: number = 0;
     private isNoclip: boolean = false;
     private flashlight: THREE.SpotLight | null = null;
@@ -93,34 +96,58 @@ export class PlayerController {
             return;
         }
 
-        // Crouch Input (moved to handleCrouching method for smooth transition)
-        // Just set the target state here
-        if (this.game.input.getKey('KeyZ') || this.game.input.getKey('KeyC')) {
-            this.targetCrouch = 1;
-        } else {
-            // Check for ceiling before allowing uncrouch
-            if (this.crouchAmount > 0.5 && this.checkCeiling()) {
-                // Can't stand up, keep crouching
-                this.targetCrouch = 1;
+        // Mode Input Handling
+        if (this.game.input.getActionDown('Crouch')) {
+            const now = performance.now();
+            if (now - this.lastCrouchTime < 300) {
+                // Double Tap -> Toggle Prone
+                if (this.isProne) {
+                    this.isProne = false;
+                    this.targetCrouch = 1; // Go to crouch
+                } else {
+                    this.isProne = true;
+                    this.targetCrouch = 1; // Prone implies low height
+                }
             } else {
-                this.targetCrouch = 0;
+                // Single Tap -> Toggle Crouch
+                if (this.isProne) {
+                    // If prone, pressing input goes to Crouch
+                    this.isProne = false;
+                    this.targetCrouch = 1;
+                } else {
+                     if (this.targetCrouch > 0.5) {
+                         // Stand up if clear
+                         if (!this.checkCeiling()) this.targetCrouch = 0;
+                     } else {
+                         this.targetCrouch = 1;
+                     }
+                }
             }
+            this.lastCrouchTime = now;
         }
 
-        this.isCrouching = this.crouchAmount > 0.5;
+        // Sprint cancels Prone/Crouch (if possible)
+        if (this.game.input.getAction('Sprint')) {
+             if (this.isProne) this.isProne = false;
+             // Optional: cancel crouch on sprint? Usually yes.
+             // if (this.targetCrouch > 0 && !this.checkCeiling()) this.targetCrouch = 0;
+        }
+        
+        // Remove legacy hardcoded keys
+        // if (this.game.input.getKeyDown('KeyZ')) ... 
 
-        const isSprinting = this.game.input.getKey('ShiftLeft') && !this.isCrouching;
-        const currentSpeed = this.isCrouching ? this.crouchSpeed : (isSprinting ? this.runSpeed : this.speed);
+        this.isCrouching = this.targetCrouch > 0.5 && !this.isProne;
+        const currentSpeed = this.isProne ? 1.5 : (this.isCrouching ? this.crouchSpeed : (this.game.input.getAction('Sprint') ? this.runSpeed : this.speed));
 
         // Direction
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
         const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
 
         const velocity = new THREE.Vector3();
-        if (this.game.input.getKey('KeyW')) velocity.add(forward);
-        if (this.game.input.getKey('KeyS')) velocity.sub(forward);
-        if (this.game.input.getKey('KeyD')) velocity.add(right);
-        if (this.game.input.getKey('KeyA')) velocity.sub(right);
+        if (this.game.input.getAction('MoveForward')) velocity.add(forward);
+        if (this.game.input.getAction('MoveBackward')) velocity.sub(forward);
+        if (this.game.input.getAction('MoveRight')) velocity.add(right);
+        if (this.game.input.getAction('MoveLeft')) velocity.sub(right); // Settings says A is Left
 
         if (velocity.length() > 0) velocity.normalize().multiplyScalar(currentSpeed);
 
@@ -144,7 +171,8 @@ export class PlayerController {
         }
 
         // Jump
-        if (this.game.input.getKey('Space')) {
+        // Jump
+        if (this.game.input.getAction('Jump')) {
             if (this.checkGrounded()) {
                 body.velocity.y = this.jumpForce;
             }
@@ -220,11 +248,14 @@ export class PlayerController {
 
     private handleCrouching(dt: number) {
         // Smoothly interpolate crouch
-        const crouchSpeed = 8; // Faster than lean for responsive feel
+        const crouchSpeed = 8;
         this.crouchAmount += (this.targetCrouch - this.crouchAmount) * crouchSpeed * dt;
-
-        // Clamp to avoid overshoot
         this.crouchAmount = Math.max(0, Math.min(1, this.crouchAmount));
+
+        // Smoothly interpolate prone
+        const targetProne = this.isProne ? 1 : 0;
+        this.proneAmount += (targetProne - this.proneAmount) * crouchSpeed * dt;
+        this.proneAmount = Math.max(0, Math.min(1, this.proneAmount));
     }
 
     private checkCeiling(): boolean {
@@ -232,8 +263,12 @@ export class PlayerController {
         if (!this.gameObject.body) return false;
 
         const start = this.gameObject.body.position.clone();
+        // Start ray OUTSIDE the body sphere to avoid self-collision
+        // Sphere radius is 0.5.
+        start.y += 0.6; 
+        
         const end = start.clone();
-        end.y += 1.2; // Check ~standing height
+        end.y += 1.0; // Check up to standing height + buffer relative to start
 
         const ray = new CANNON.Ray(start, end);
         const result = new CANNON.RaycastResult();
@@ -243,53 +278,55 @@ export class PlayerController {
     }
 
     private initFlashlight() {
-        // Create spotlight for flashlight
-        this.flashlight = new THREE.SpotLight(0xffffff, 8.0); // Much brighter
-        this.flashlight.angle = Math.PI / 5; // Slightly wider cone
-        this.flashlight.penumbra = 0.2;
-        this.flashlight.decay = 1.0; // Reduced decay for better range
-        this.flashlight.distance = 50;
+        this.flashlight = new THREE.SpotLight(0xffffff, 2, 80, Math.PI / 4, 0.5, 1);
+        this.flashlight.position.set(0, 0, 0);
         this.flashlight.castShadow = true;
-        this.flashlight.shadow.mapSize.width = 1024;
-        this.flashlight.shadow.mapSize.height = 1024;
-
-        // Add to camera
-        this.game.camera.add(this.flashlight);
-        this.flashlight.position.set(0.1, -0.1, 0); // Slightly offset from camera center
-
-        // Create and add target
-        this.flashlight.target.position.set(0, 0, -1);
-        this.game.scene.add(this.flashlight.target); // Add target to scene, not camera
-
-        this.flashlight.visible = false; // Start off
-        console.log('Flashlight initialized');
+        this.game.scene.add(this.flashlight);
+        this.flashlight.target = this.game.camera;
     }
 
     private handleFlashlightToggle() {
-        if (this.game.input.getKeyDown('KeyF')) {
+        if (this.game.input.getActionDown('Flashlight') || this.game.input.getKeyDown('KeyF')) { // KeyF legacy check
             this.flashlightOn = !this.flashlightOn;
             if (this.flashlight) {
-                this.flashlight.visible = this.flashlightOn;
-                console.log(`Flashlight ${this.flashlightOn ? 'ON' : 'OFF'}`);
+                this.flashlight.intensity = this.flashlightOn ? 2 : 0;
             }
         }
-
-        // Update flashlight target to always point forward from camera
+        
+        // Update flashlight position/direction to match camera
         if (this.flashlight && this.flashlightOn) {
-            const forward = new THREE.Vector3(0, 0, -1);
-            forward.applyQuaternion(this.game.camera.quaternion);
-            forward.multiplyScalar(5); // 5 units ahead
-            this.flashlight.target.position.copy(this.game.camera.position).add(forward);
+            this.flashlight.position.copy(this.game.camera.position);
+            // Move it slightly offset?
+            this.flashlight.position.add(new THREE.Vector3(0.2, -0.2, 0).applyQuaternion(this.game.camera.quaternion));
+            
+            // Set target
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.game.camera.quaternion);
+            this.flashlight.target.position.copy(this.flashlight.position).add(forward);
+            this.flashlight.target.updateMatrixWorld();
         }
     }
+
 
     private syncCamera(_dt: number) {
         if (!this.gameObject.body) return;
 
-        // Lerp height offset based on crouch amount (0.6 standing, 0.2 crouched)
-        const standingHeight = 0.6;
-        const crouchingHeight = 0.2;
-        const heightOffset = standingHeight - (standingHeight - crouchingHeight) * this.crouchAmount;
+        // Lerp height offset based on crouch amount
+        // Body Center is at ~0.5m (radius). 
+        // Eye level target: ~1.7m (Standing), ~1.0m (Crouch), ~0.3m (Prone)
+        // Offsets from body center:
+        const standingHeight = 1.2; // 0.5 + 1.2 = 1.7m
+        const crouchingHeight = 0.5; // 0.5 + 0.5 = 1.0m
+        const proneHeight = -0.2; // 0.5 - 0.2 = 0.3m
+
+        // Blend: First Stand -> Crouch, then Crouch -> Prone
+        let currentHeight = standingHeight;
+        if (this.proneAmount > 0) {
+             currentHeight = crouchingHeight - (crouchingHeight - proneHeight) * this.proneAmount;
+        } else {
+             currentHeight = standingHeight - (standingHeight - crouchingHeight) * this.crouchAmount;
+        }
+        
+        const heightOffset = currentHeight;
 
         // Base head position
         const headPos = new THREE.Vector3(
@@ -337,5 +374,11 @@ export class PlayerController {
 
     public setSensitivity(value: number) {
         this.sensitivity = value;
+    }
+
+    public dispose() {
+        // Stop any active effects or listeners
+        // For now, no specific cleanup needed as inputs are global, 
+        // but this allows Player.ts to call it without error.
     }
 }

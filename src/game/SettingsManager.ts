@@ -31,17 +31,16 @@ export const DEFAULT_SETTINGS: GameSettings = {
         'MoveLeft': 'KeyA',
         'MoveRight': 'KeyD',
         'Jump': 'Space',
-        'Crouch': 'ControlLeft',
+        'Crouch': 'KeyZ',
         'Sprint': 'ShiftLeft',
         'Interact': 'KeyE',
         'Reload': 'KeyR',
         'Fire': 'Mouse0',
         'Aim': 'Mouse1',
         'Pause': 'Escape',
-        'SquadFollow': 'Digit1',
-        'SquadHold': 'Digit2',
-        'SquadAttack': 'Digit3',
+        'Scoreboard': 'KeyT',
     }
+
 };
 
 export class SettingsManager {

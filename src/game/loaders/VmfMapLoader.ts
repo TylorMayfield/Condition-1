@@ -141,6 +141,10 @@ export class VmfMapLoader {
             this.game.levelGenerator.spawnPlayer(new THREE.Vector3(0, 5, 0));
         }
 
+        // Store Available Spawns for GameMode respawning
+        this.game.availableSpawns.T = tSpawns;
+        this.game.availableSpawns.CT = ctSpawns;
+
         // 2. Enemy Spawns (Terrorists) - Limit to 3
         const limitedTSpawns = tSpawns.slice(0, 3);
         const eleEnemySpawns = limitedTSpawns.map(pos => ({ position: pos, name: 'Terrorist' }));

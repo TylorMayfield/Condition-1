@@ -13,6 +13,7 @@ export class Player extends GameObject {
 
     constructor(game: Game) {
         super(game);
+        this.team = 'Player';
 
         // Physics Body
         const radius = 0.5;
@@ -32,6 +33,18 @@ export class Player extends GameObject {
     }
 
     public update(dt: number) {
+        if (this.health <= 0) {
+            // Death State
+            if (this.body) {
+                this.mesh?.position.copy(this.body.position as any);
+                this.game.camera.position.copy(this.body.position as any);
+                this.game.camera.quaternion.copy(this.body.quaternion as any);
+                // Adjust camera height for rolling head ??
+                // Actually if body is sphere(0.5), local point (0, 0.4, 0)
+            }
+            return;
+        }
+
         super.update(dt);
 
         // Delegate to components
@@ -39,6 +52,33 @@ export class Player extends GameObject {
         this.weapon.update(dt, this.game.camera, this.controller);
 
         this.updateHUD();
+    }
+
+    public takeDamage(amount: number) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.health = 0;
+            this.die();
+        }
+    }
+
+    private die() {
+        console.log("Player Died");
+        
+        // precise death physics
+        if (this.body) {
+            this.body.fixedRotation = false;
+            this.body.updateMassProperties(); // Update inertia
+            
+            // Push it over
+            this.body.applyImpulse(new CANNON.Vec3(2, 0, 0), new CANNON.Vec3(0, 0.5, 0));
+            this.body.angularDamping = 0.5;
+        }
+        
+        // Disable controls
+        this.game.input.unlockCursor(); // Show cursor
+        this.controller.dispose(); // Or disable
+        // TODO: Show Game Over Screen
     }
 
     public getCurrentWeapon() {

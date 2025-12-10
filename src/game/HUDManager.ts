@@ -8,17 +8,26 @@ export class HUDManager {
     // Elements
     private healthDisplay: HTMLDivElement;
     private ammoDisplay: HTMLDivElement;
-    private squadDisplay: HTMLDivElement;
+    
     private fpsDisplay: HTMLDivElement;
     private posDisplay: HTMLDivElement;
     private velDisplay: HTMLDivElement;
+    private navDisplay: HTMLDivElement;
 
     // Compass
     private compassTape: HTMLDivElement;
 
+    // Scoreboard
+    private scoreboard: HTMLDivElement;
+
+
     private frameCount: number = 0;
     private timeElapsed: number = 0;
     private prevPos: THREE.Vector3 = new THREE.Vector3();
+
+    // Pause Menu
+    private pauseMenu: HTMLDivElement;
+    private bakeButton: HTMLButtonElement;
 
     constructor(game: Game) {
         this.game = game;
@@ -39,15 +48,76 @@ export class HUDManager {
         this.ammoDisplay = this.createAmmoDisplay();
 
         // Compass Setup
-        // Compass Setup
         const compassObj = this.createCompassDisplay();
         this.compassTape = compassObj.tape;
 
-        this.squadDisplay = this.createSquadDisplay();
         this.fpsDisplay = this.createFPSDisplay();
+
         this.posDisplay = this.createPosDisplay();
         this.velDisplay = this.createVelDisplay();
         this.createVignette();
+
+        this.scoreboard = this.createScoreboardDisplay();
+        
+        this.navDisplay = this.createNavDisplay();
+
+        // Pause Menu
+        this.pauseMenu = this.createPauseMenu();
+        // @ts-ignore
+        this.bakeButton = this.pauseMenu.querySelector('#bake-btn');
+    }
+
+    private createPauseMenu(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '50%';
+        div.style.left = '50%';
+        div.style.transform = 'translate(-50%, -50%)';
+        div.style.backgroundColor = 'rgba(0, 20, 0, 0.9)';
+        div.style.border = '2px solid #00ff00';
+        div.style.padding = '20px';
+        div.style.borderRadius = '8px';
+        div.style.display = 'none';
+        div.style.pointerEvents = 'auto'; // Allow clicking buttons
+        div.style.textAlign = 'center';
+
+        div.innerHTML = `
+            <h2 style="color: #00ff00; margin-bottom: 20px;">PAUSED</h2>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="resume-btn" style="padding: 10px 20px; background: #004400; color: #fff; border: 1px solid #00ff00; cursor: pointer;">RESUME</button>
+                <button id="bake-btn" style="padding: 10px 20px; background: #004400; color: #fff; border: 1px solid #00ff00; cursor: pointer;">BAKE NAVMESH</button>
+            </div>
+        `;
+
+        this.container.appendChild(div);
+
+        // Attach listeners
+        // Need to wait for append? Element exists now.
+        const resumeBtn = div.querySelector('#resume-btn') as HTMLButtonElement;
+        resumeBtn.onclick = () => {
+            this.game.togglePause();
+        };
+
+        const bakeBtn = div.querySelector('#bake-btn') as HTMLButtonElement;
+        bakeBtn.onclick = () => {
+            console.log("Baking Navmesh...");
+            const json = this.game.navigationSystem.serialize();
+            
+            // Download file
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'navmesh.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            alert("Navmesh Baked & Downloaded! Move 'navmesh.json' to the public folder.");
+        };
+
+        return div;
     }
 
     private createHealthDisplay(): HTMLDivElement {
@@ -60,7 +130,7 @@ export class HUDManager {
         this.container.appendChild(div);
         return div;
     }
-
+    
     private createAmmoDisplay(): HTMLDivElement {
         const div = document.createElement('div');
         div.style.position = 'absolute';
@@ -107,6 +177,18 @@ export class HUDManager {
         div.style.fontSize = '12px';
         div.style.color = 'rgba(0, 255, 255, 0.7)'; // Cyan for velocity
         div.innerText = 'VEL: 0.00 m/s';
+        this.container.appendChild(div);
+        return div;
+    }
+
+    private createNavDisplay(): HTMLDivElement {
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '30px';
+        div.style.left = '10px';
+        div.style.fontSize = '12px';
+        div.style.color = '#ffff00';
+        div.innerText = 'NAV: Loading...';
         this.container.appendChild(div);
         return div;
     }
@@ -186,22 +268,40 @@ export class HUDManager {
         return { container, tape };
     }
 
-    private createSquadDisplay(): HTMLDivElement {
+
+    private createScoreboardDisplay(): HTMLDivElement {
         const div = document.createElement('div');
         div.style.position = 'absolute';
-        div.style.top = '60px';
-        div.style.left = '20px';
-        div.style.fontSize = '16px';
-        div.innerHTML = 'SQUAD:<br>- BRAVO (FOLLOWING)';
+        div.style.top = '50%';
+        div.style.left = '50%';
+        div.style.transform = 'translate(-50%, -50%)';
+        div.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        div.style.color = 'white';
+        div.style.padding = '20px';
+        div.style.borderRadius = '5px';
+        div.style.minWidth = '400px';
+        div.style.display = 'none'; // Hidden by default
+        div.style.border = '1px solid #00ff00';
+        
+        // Header
+        div.innerHTML = `
+            <h2 style="text-align: center; border-bottom: 1px solid #00ff00; padding-bottom: 10px;">MISSION STATUS</h2>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead style="text-align: left; color: #00ff00;">
+                    <tr>
+                        <th style="padding: 5px;">Faction</th>
+                        <th style="padding: 5px;">Name</th>
+                        <th style="padding: 5px;">Status</th>
+                        <th style="padding: 5px;">Score</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreboard-body">
+                </tbody>
+            </table>
+        `;
+        
         this.container.appendChild(div);
         return div;
-    }
-
-    public updateSquadOrder(order: number) {
-        const orderName = ['FOLLOW', 'HOLD', 'ATTACK'][order] || 'UNKNOWN';
-        if (this.squadDisplay) {
-            this.squadDisplay.innerHTML = `SQUAD:<br>- BRAVO (${orderName})`;
-        }
     }
 
     public update(_dt: number) {
@@ -212,8 +312,33 @@ export class HUDManager {
             this.frameCount = 0;
             this.timeElapsed = 0;
         }
+        
+        // Update Nav Stats
+        if (this.navDisplay && this.game.navigationSystem) {
+             // Access private nodes via cast or expose getter. 
+             // Assuming I add getter or use cast.
+             const nodeCount = (this.game.navigationSystem as any).nodes.length;
+             this.navDisplay.innerText = `NAV: ${nodeCount} Nodes`;
+             if (nodeCount === 0) this.navDisplay.style.color = 'red';
+             else this.navDisplay.style.color = '#00ff00';
+        }
+
+        // Display Pause Menu
+        if (this.game.isPaused) {
+            this.pauseMenu.style.display = 'block';
+        } else {
+            this.pauseMenu.style.display = 'none';
+        }
 
         if (!this.game.player) return;
+
+        // Scoreboard Input
+        if (this.game.input.getAction('Scoreboard')) {
+            this.scoreboard.style.display = 'block';
+            this.updateScoreboard();
+        } else {
+            this.scoreboard.style.display = 'none';
+        }
 
         // Update Health
         if (this.healthDisplay) {
@@ -247,10 +372,6 @@ export class HUDManager {
                 speed = dist / _dt;
             }
 
-            // Smoothing (optional, but good for readability)
-            // But let's show raw for accuracy first, maybe simple EMA if jittery.
-            // speed = speed * 0.2 + prevSpeed * 0.8?
-
             this.velDisplay.innerText = `VEL: ${speed.toFixed(2)} m/s`;
 
             // Update prevPos
@@ -259,6 +380,33 @@ export class HUDManager {
 
         // Update Compass
         this.updateCompass();
+    }
+
+    private updateScoreboard() {
+        if (!this.scoreboard) return;
+        const tbody = this.scoreboard.querySelector('#scoreboard-body');
+        if (!tbody) return;
+
+        // Get Data
+        const data = this.game.gameMode.getScoreboardData();
+        
+        // Sort by Score (Desc) then Name
+        data.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+        // Rebuild rows
+        let html = '';
+        data.forEach(entry => {
+            const color = entry.team === 'TaskForce' || entry.team === 'Blue' ? '#00aaff' : '#ff4444';
+            html += `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <td style="padding: 5px; color: ${color};">${entry.team}</td>
+                    <td style="padding: 5px;">${entry.name}</td>
+                    <td style="padding: 5px; color: ${entry.status === 'Active' || entry.status === 'Alive' ? '#00ff00' : '#888'};">${entry.status}</td>
+                    <td style="padding: 5px;">${entry.score}</td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
     }
 
     private updateCompass() {

@@ -15,11 +15,18 @@ export class PostProcessingManager {
     private previousCameraMatrix: THREE.Matrix4;
     private previousProjectionMatrix: THREE.Matrix4;
 
+    private renderer: THREE.WebGLRenderer;
+    private camera: THREE.PerspectiveCamera;
+
     constructor(
-        private renderer: THREE.WebGLRenderer,
-        private scene: THREE.Scene,
-        private camera: THREE.PerspectiveCamera
+        renderer: THREE.WebGLRenderer,
+        scene: THREE.Scene,
+        camera: THREE.PerspectiveCamera
     ) {
+        this.renderer = renderer;
+        this.camera = camera;
+        // scene is only used in constructor
+
         // Configure renderer for post-processing
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         
@@ -30,14 +37,16 @@ export class PostProcessingManager {
         this.renderPass = new RenderPass(scene, camera);
         this.composer.addPass(this.renderPass);
 
-        // Screen Space Reflections Pass
+        // Screen Space Reflections Pass (Heavier, disabled by default for performance)
         this.ssrPass = new SSRPass(scene, camera, renderer);
+        this.ssrPass.enabled = false; 
         this.composer.addPass(this.ssrPass);
 
         // Motion Blur Pass
         this.previousCameraMatrix = new THREE.Matrix4();
         this.previousProjectionMatrix = new THREE.Matrix4();
         this.motionBlurPass = new MotionBlurPass(renderer);
+        this.motionBlurPass.enabled = false; // Disabled by default for crispness/performance
         this.composer.addPass(this.motionBlurPass);
 
         // FXAA Pass - Anti-aliasing (must be last)
@@ -51,6 +60,16 @@ export class PostProcessingManager {
         // Store initial camera matrices
         this.previousCameraMatrix.copy(camera.matrixWorldInverse);
         this.previousProjectionMatrix.copy(camera.projectionMatrix);
+    }
+
+    public setQuality(level: 'low' | 'high') {
+        if (level === 'high') {
+            this.ssrPass.enabled = true;
+            this.motionBlurPass.enabled = true;
+        } else {
+            this.ssrPass.enabled = false;
+            this.motionBlurPass.enabled = false;
+        }
     }
 
     public render(deltaTime: number): void {

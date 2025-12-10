@@ -1,5 +1,7 @@
 import { Game } from '../../engine/Game';
 import { SettingsManager } from '../SettingsManager';
+import { TeamDeathmatchGameMode } from '../gamemodes/TeamDeathmatchGameMode';
+import { FreeForAllGameMode } from '../gamemodes/FreeForAllGameMode';
 // @ts-ignore
 import menuHtml from './main_menu.html?raw';
 // @ts-ignore
@@ -231,11 +233,28 @@ export class MenuSystem {
         console.log(`Loading map: ${mapName}`);
 
         if ((this.game as any).levelGenerator) {
+            // Determine Game Mode
+            const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
+            const modeValue = modeSelect ? modeSelect.value : 'tdm';
+            
+            console.log(`Selected Game Mode: ${modeValue}`);
+            
+            // Switch Game Mode
+            if (modeValue === 'ffa') {
+                this.game.gameMode = new FreeForAllGameMode(this.game);
+            } else {
+                // Default to TDM
+                this.game.gameMode = new TeamDeathmatchGameMode(this.game);
+            }
+
             // Show loading
             this.showLoading();
 
             const lg = (this.game as any).levelGenerator;
             await lg.loadMap(mapName);
+            
+            // Initialize the new game mode (reset rounds, spawn logic, etc)
+            this.game.gameMode.init();
 
             // Show Ready State (Click to Start)
             this.showReadyToStart();

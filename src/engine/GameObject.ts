@@ -6,6 +6,7 @@ export class GameObject {
     public mesh: THREE.Object3D | null = null;
     public body: CANNON.Body | null = null;
     public game: Game;
+    public team: string = 'Neutral';
 
     constructor(game: Game) {
         this.game = game;

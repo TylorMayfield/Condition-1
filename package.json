@@ -13,7 +13,10 @@
     "test": "vitest",
     "electron:dev": "concurrently \"vite\" \"electron .\"",
     "make": "electron-forge make",
-    "validate-maps": "npx tsx scripts/validate-maps.ts"
+    "validate-maps": "npx tsx scripts/validate-maps.ts",
+    "bake": "npx tsx scripts/bake-navmesh.ts",
+    "bake:all": "npx tsx scripts/bake-navmesh.ts --all",
+    "test:nav": "npx tsx scripts/test-nav.ts"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.10.2",
@@ -25,9 +28,11 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
+    "@recast-navigation/three": "^0.43.0",
     "@types/three": "^0.181.0",
     "cannon-es": "^0.20.0",
     "electron-squirrel-startup": "^1.0.1",
+    "recast-navigation": "^0.43.0",
     "three": "^0.181.2",
     "vitest": "^4.0.15"
   }

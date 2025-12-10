@@ -104,8 +104,8 @@ export class EntitySpawner {
 
     private spawnEnemies(spawns: SpawnPoint[]): void {
         for (const spawn of spawns) {
-            const enemy = new Enemy(this.game, spawn.position);
-            this.game.roundManager?.addEnemy(enemy);
+            const enemy = new Enemy(this.game, spawn.position, 'Enemy');
+            this.game.gameMode?.registerEntity(enemy);
         }
         console.log(`Spawned ${spawns.length} enemies`);
     }

@@ -5,7 +5,8 @@ import { Input } from './Input';
 import { GameObject } from './GameObject';
 import { SoundManager } from './SoundManager';
 import { Player } from '../game/Player'; // Import Player type
-import { RoundManager } from '../game/RoundManager';
+import { GameMode } from '../game/gamemodes/GameMode';
+import { TeamDeathmatchGameMode } from '../game/gamemodes/TeamDeathmatchGameMode';
 import { WeatherManager } from '../game/WeatherManager';
 import { WeatherEffects } from '../game/WeatherEffects';
 import { BallisticsManager } from '../game/BallisticsManager';
@@ -15,6 +16,8 @@ import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
 import { BoidSystem } from '../game/BoidSystem';
+import { NavigationSystem } from '../game/ai/NavigationSystem';
+import { RecastNavigation } from '../game/ai/RecastNavigation';
 
 import { SettingsManager } from '../game/SettingsManager';
 
@@ -22,6 +25,8 @@ export class Game {
     public renderer: THREE.WebGLRenderer;
     public scene: THREE.Scene;
     public camera: THREE.PerspectiveCamera;
+    public sceneHUD: THREE.Scene; // Overlay scene for weapon
+    public cameraHUD: THREE.PerspectiveCamera; // Overlay camera
     public world: CANNON.World;
     public time: Time;
     public isRunning: boolean = false;
@@ -32,7 +37,7 @@ export class Game {
     private gameObjects: GameObject[] = [];
     public player!: Player; // Public reference for AI
     public isPaused: boolean = false;
-    public roundManager: RoundManager;
+    public gameMode: GameMode;
     public weatherManager: WeatherManager;
     public weatherEffects: WeatherEffects;
     public ballisticsManager: BallisticsManager;
@@ -42,6 +47,9 @@ export class Game {
     public skyboxManager: SkyboxManager;
     public postProcessingManager?: PostProcessingManager;
     public boidSystem?: BoidSystem;
+    public availableSpawns: { T: THREE.Vector3[], CT: THREE.Vector3[] } = { T: [], CT: [] };
+    public navigationSystem: NavigationSystem;
+    public recastNav: RecastNavigation;
     // @ts-ignore
     public levelGenerator: any; // Type as any to avoid circular import with LevelGenerator
 
@@ -55,7 +63,7 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap; // Optimized
 
         // Performance optimizations
         this.renderer.sortObjects = true; // Enable object sorting for better culling
@@ -89,7 +97,10 @@ export class Game {
         this.settingsManager = new SettingsManager();
         this.input = new Input(this.settingsManager);
         this.soundManager = new SoundManager();
-        this.roundManager = new RoundManager(this);
+        
+        // Init Game Mode (Default to TDM)
+        this.gameMode = new TeamDeathmatchGameMode(this);
+
         this.weatherManager = new WeatherManager(this);
         this.weatherEffects = new WeatherEffects(this);
         this.ballisticsManager = new BallisticsManager(this);
@@ -113,6 +124,19 @@ export class Game {
             this.camera
         );
 
+        this.navigationSystem = new NavigationSystem(this);
+        this.recastNav = new RecastNavigation(this);
+        
+        // Init HUD Scene for Weapon Overlay
+        this.sceneHUD = new THREE.Scene();
+        this.cameraHUD = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.cameraHUD.position.set(0, 0, 0); // HUD camera stays at origin
+        // Light for gun
+        const gunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        gunLight.position.set(-1, 2, 3);
+        this.sceneHUD.add(gunLight);
+        this.sceneHUD.add(new THREE.AmbientLight(0xffffff, 0.3));
+
         // Resize Listener
         window.addEventListener('resize', () => this.onResize());
     }
@@ -131,8 +155,8 @@ export class Game {
         dirLight.castShadow = true;
 
         // Shadow configuration - High Res
-        dirLight.shadow.mapSize.width = 2048;
-        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.mapSize.width = 1024; // Optimization: Reduced from 2048
+        dirLight.shadow.mapSize.height = 1024;
 
         // Shadow camera bounds
         const d = 20;
@@ -163,6 +187,8 @@ export class Game {
     private onResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
+        this.cameraHUD.aspect = window.innerWidth / window.innerHeight;
+        this.cameraHUD.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.postProcessingManager?.setSize(window.innerWidth, window.innerHeight);
     }
@@ -190,6 +216,12 @@ export class Game {
         if (this.isRunning) return;
         this.isRunning = true;
         this.input.lockCursor(); // Start locked
+        
+        // Start Game Mode
+        this.gameMode.init();
+
+        // Build Navigation Graph is now handled by LevelGenerator.loadMap()
+        
         this.loop();
     }
 
@@ -241,8 +273,8 @@ export class Game {
         // Update entities
         this.gameObjects.forEach(go => go.update(dt));
 
-        // Update Round Manager
-        this.roundManager?.update(dt);
+        // Update Game Mode
+        this.gameMode?.update(dt);
 
         // Update Weather
         this.weatherManager?.update(dt);
@@ -260,24 +292,30 @@ export class Game {
         // Update HUD
         this.hudManager?.update(dt);
 
-        // Squad Orders Input (Temp)
-        // Squad Orders Input (Temp)
-        if (this.input.getKeyDown('Digit1')) this.squadManager.issueOrder(0); // Follow
-        if (this.input.getKeyDown('Digit2')) this.squadManager.issueOrder(1); // Hold
-        if (this.input.getKeyDown('Digit3')) this.squadManager.issueOrder(2); // Attack
-
         this.skyboxManager?.update(dt);
+
+        // Update Recast Navigation crowd simulation
+        this.recastNav?.update(dt);
+
     }
 
     private render() {
+        // 1. Render Main Scene
+        this.renderer.autoClear = true; // Clear everything for first pass
         if (this.postProcessingManager) {
             this.postProcessingManager.render(this.time.deltaTime);
         } else {
             this.renderer.render(this.scene, this.camera);
         }
+
+        // 2. Render Weapon Overlay (HUD Scene)
+        this.renderer.autoClear = false; // Don't clear color, just depth
+        this.renderer.clearDepth();
+        this.renderer.render(this.sceneHUD, this.cameraHUD);
+        this.renderer.autoClear = true; // Reset
     }
 
-    public onEnemyDeath() {
-        this.roundManager?.onEnemyDeath();
+    public onEnemyDeath(victim: GameObject, killer?: GameObject) {
+        this.gameMode?.onEntityDeath(victim, killer);
     }
 }
