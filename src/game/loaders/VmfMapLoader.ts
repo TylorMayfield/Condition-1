@@ -145,16 +145,9 @@ export class VmfMapLoader {
         this.game.availableSpawns.T = tSpawns;
         this.game.availableSpawns.CT = ctSpawns;
 
-        // 2. Enemy Spawns (Terrorists) - Limit to 3
-        const limitedTSpawns = tSpawns.slice(0, 3);
-        const eleEnemySpawns = limitedTSpawns.map(pos => ({ position: pos, name: 'Terrorist' }));
-        this.game.levelGenerator.getEntitySpawner().spawnEnemies(eleEnemySpawns);
-
-        // 3. Squad Spawns (Remaining CT spots) - Limit to 3 (excluding player)
-        // Note: ctSpawns already had one shifted off for the player if available
-        const limitedCTSpawns = ctSpawns.slice(0, 3);
-        const eleFriendlySpawns = limitedCTSpawns.map(pos => ({ position: pos, name: 'Counter-Terrorist' }));
-        this.game.levelGenerator.getEntitySpawner().spawnFriendlies(eleFriendlySpawns);
+        // NOTE: Enemies and friendlies are now spawned by the GameMode, not here.
+        // This allows round-based games to control spawning.
+        console.log(`Stored spawn points: T=${tSpawns.length}, CT=${ctSpawns.length} (GameMode will spawn teams)`);
     }
 
     public static async check(mapName: string): Promise<boolean> {

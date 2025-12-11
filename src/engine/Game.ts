@@ -35,6 +35,7 @@ export class Game {
     public settingsManager: SettingsManager;
     public soundManager: SoundManager;
     private gameObjects: GameObject[] = [];
+    private tickCallbacks: ((dt: number) => void)[] = [];
     public player!: Player; // Public reference for AI
     public isPaused: boolean = false;
     public gameMode: GameMode;
@@ -97,6 +98,7 @@ export class Game {
         this.settingsManager = new SettingsManager();
         this.input = new Input(this.settingsManager);
         this.soundManager = new SoundManager();
+        this.soundManager.init(this.camera); // Initialize 3D positional audio
 
         // Init Game Mode (Default to TDM)
         this.gameMode = new TeamDeathmatchGameMode(this);
@@ -208,14 +210,30 @@ export class Game {
         }
     }
 
+
+
     public getGameObjects(): ReadonlyArray<GameObject> {
         return this.gameObjects;
+    }
+
+    public addTickCallback(callback: (dt: number) => void) {
+        this.tickCallbacks.push(callback);
+    }
+
+    public removeTickCallback(callback: (dt: number) => void) {
+        const index = this.tickCallbacks.indexOf(callback);
+        if (index > -1) {
+            this.tickCallbacks.splice(index, 1);
+        }
     }
 
     public start() {
         if (this.isRunning) return;
         this.isRunning = true;
         this.input.lockCursor(); // Start locked
+
+        // Resume audio context (browser autoplay policy)
+        this.soundManager.resume();
 
         // Start Game Mode
         this.gameMode.init();
@@ -296,6 +314,11 @@ export class Game {
 
         // Update Recast Navigation crowd simulation
         this.recastNav?.update(dt);
+
+        // Update Callbacks
+        for (let i = this.tickCallbacks.length - 1; i >= 0; i--) {
+            this.tickCallbacks[i](dt);
+        }
 
     }
 

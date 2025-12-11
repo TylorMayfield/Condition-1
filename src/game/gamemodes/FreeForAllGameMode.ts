@@ -29,12 +29,46 @@ export class FreeForAllGameMode extends GameMode {
     }
 
     private forceSpawn() {
-        // Random Pos
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 15 + Math.random() * 20;
-        const x = Math.sin(angle) * radius;
-        const z = Math.cos(angle) * radius;
-        const pos = new THREE.Vector3(x, 0.8, z);
+        let pos: THREE.Vector3 | null = null;
+
+        // Try to get a valid spawn point from navmesh
+        if (this.game.recastNav) {
+            // Get a random point on the navmesh around the world center
+            const attempts = 5;
+            for (let i = 0; i < attempts && !pos; i++) {
+                const centerOffset = new THREE.Vector3(
+                    (Math.random() - 0.5) * 40,
+                    0,
+                    (Math.random() - 0.5) * 40
+                );
+                const samplePoint = this.game.recastNav.getRandomPointAround(centerOffset, 15);
+                if (samplePoint) {
+                    pos = samplePoint.clone();
+                    pos.y += 0.5; // Lift slightly above navmesh
+                }
+            }
+        }
+
+        // Fallback to map spawns if navmesh fails
+        if (!pos) {
+            const spawns = this.game.availableSpawns?.T || this.game.availableSpawns?.CT;
+            if (spawns && spawns.length > 0) {
+                pos = spawns[Math.floor(Math.random() * spawns.length)].clone();
+                pos.x += (Math.random() - 0.5) * 3;
+                pos.z += (Math.random() - 0.5) * 3;
+            }
+        }
+
+        // Last resort fallback
+        if (!pos) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 15 + Math.random() * 20;
+            pos = new THREE.Vector3(
+                Math.sin(angle) * radius,
+                0.8,
+                Math.cos(angle) * radius
+            );
+        }
 
         // Unique team per enemy to ensure FFA
         const uniqueTeam = `Enemy_${Math.floor(Math.random() * 99999)}`;

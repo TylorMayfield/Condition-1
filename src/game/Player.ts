@@ -4,12 +4,17 @@ import { GameObject } from '../engine/GameObject';
 import { Game } from '../engine/Game';
 import { PlayerController } from './components/PlayerController';
 import { WeaponSystem } from './components/WeaponSystem';
+import { Weapon } from './components/Weapon';
+import { SniperRifle } from './components/SniperRifle';
+import { Grenade } from './components/Grenade';
 
 export class Player extends GameObject {
     public health: number = 100;
 
     private controller: PlayerController;
-    private weapon: WeaponSystem;
+    private weapons: Weapon[] = [];
+    private currentWeaponIndex: number = 0;
+    public grenadeCount: number = 3;
 
     constructor(game: Game) {
         super(game);
@@ -29,7 +34,11 @@ export class Player extends GameObject {
 
         // Init Components
         this.controller = new PlayerController(game, this);
-        this.weapon = new WeaponSystem(game);
+        
+        // Init Weapons
+        this.addWeapon(new WeaponSystem(game)); // Assault Rifle
+        this.addWeapon(new SniperRifle(game));  // Sniper Rifle
+        this.switchWeapon(0);
     }
 
     public update(dt: number) {
@@ -39,8 +48,6 @@ export class Player extends GameObject {
                 this.mesh?.position.copy(this.body.position as any);
                 this.game.camera.position.copy(this.body.position as any);
                 this.game.camera.quaternion.copy(this.body.quaternion as any);
-                // Adjust camera height for rolling head ??
-                // Actually if body is sphere(0.5), local point (0, 0.4, 0)
             }
             return;
         }
@@ -49,9 +56,81 @@ export class Player extends GameObject {
 
         // Delegate to components
         this.controller.update(dt);
-        this.weapon.update(dt, this.game.camera, this.controller);
+        
+        // Update current weapon
+        const currentWeapon = this.getCurrentWeapon();
+        if (currentWeapon) {
+            // Check for weapon switch input from controller/input system here or in controller
+            // For now, simple direct input check:
+            if (this.game.input.getKeyDown('Digit1')) this.switchWeapon(0);
+            if (this.game.input.getKeyDown('Digit2')) this.switchWeapon(1);
+            
+            // Grenade Input
+            if (this.game.input.getKeyDown('KeyG')) {
+                this.throwGrenade();
+            }
+
+            // Scroll handling would happen in input listener usually, 
+            // but we can poll for now if Input class supports delta, 
+            // or just rely on Controller.
+
+            (currentWeapon as any).update(dt, this.game.camera, this.controller);
+        }
 
         this.updateHUD();
+    }
+
+    public addWeapon(weapon: Weapon) {
+        this.weapons.push(weapon);
+        weapon.mesh.visible = false; // Hide by default
+    }
+
+    public switchWeapon(index: number) {
+        if (index < 0 || index >= this.weapons.length) return;
+        if (index === this.currentWeaponIndex && this.weapons[this.currentWeaponIndex].mesh.visible) return;
+
+        // Hide old
+        if (this.getCurrentWeapon()) {
+            this.getCurrentWeapon().mesh.visible = false;
+        }
+
+        this.currentWeaponIndex = index;
+
+        // Show new
+        const newWeapon = this.getCurrentWeapon();
+        if (newWeapon) {
+            newWeapon.mesh.visible = true;
+            // Reset ADS/States if needed?
+        }
+    }
+
+    public nextWeapon() {
+        let nextIndex = this.currentWeaponIndex + 1;
+        if (nextIndex >= this.weapons.length) nextIndex = 0;
+        this.switchWeapon(nextIndex);
+    }
+
+    public previousWeapon() {
+        let prevIndex = this.currentWeaponIndex - 1;
+        if (prevIndex < 0) prevIndex = this.weapons.length - 1;
+        this.switchWeapon(prevIndex);
+    }
+    
+    public throwGrenade() {
+        if (this.grenadeCount <= 0) return;
+        this.grenadeCount--;
+
+        const camera = this.game.camera;
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const origin = camera.position.clone().add(dir.clone().multiplyScalar(0.5));
+        
+        // Add slight up-lob
+        const velocity = dir.clone().multiplyScalar(15).add(new THREE.Vector3(0, 5, 0));
+        
+        new Grenade(this.game, origin, velocity);
+        
+        // Update HUD (if supported)
+        console.log(`Thrown Grenade! Remaining: ${this.grenadeCount}`);
     }
 
     public takeDamage(amount: number) {
@@ -82,7 +161,7 @@ export class Player extends GameObject {
     }
 
     public getCurrentWeapon() {
-        return this.weapon;
+        return this.weapons[this.currentWeaponIndex];
     }
 
     public moveTo(position: THREE.Vector3) {

@@ -130,7 +130,19 @@ export class Enemy extends GameObject {
         if (this.isRagdoll) return; // Already dead/ragdolled
 
         this.health -= amount;
+        
+        // Play impact sound at hit location
+        if (this.body) {
+            const pos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
+            this.game.soundManager.playImpact(pos);
+        }
+        
         if (this.health <= 0) {
+            // Play death sound
+            if (this.body) {
+                const deathPos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
+                this.game.soundManager.playDeath(deathPos);
+            }
             this.activateRagdoll(forceDir.multiplyScalar(forceMagnitude));
             return;
         }

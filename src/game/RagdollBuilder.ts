@@ -38,8 +38,12 @@ export class RagdollBuilder {
                 quaternion: new CANNON.Quaternion(worldQuat.x, worldQuat.y, worldQuat.z, worldQuat.w),
                 material: material,
                 linearDamping: 0.5,
-                angularDamping: 0.5
+                angularDamping: 0.5,
+                // CRITICAL: Set collision groups so ragdoll interacts with world geometry
+                collisionFilterGroup: 2, // Ragdoll group
+                collisionFilterMask: 1 | 2 // Collide with world (1) and other ragdolls (2)
             });
+            body.addShape(shape);
             
             // Apply initial velocity (e.g. from the killing shot)
             body.velocity.copy(initialVelocity);

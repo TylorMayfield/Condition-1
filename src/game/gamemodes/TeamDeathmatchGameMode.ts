@@ -5,121 +5,221 @@ import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
 import { Enemy } from '../Enemy';
 
+/**
+ * Round-Based Team Deathmatch
+ * - No respawning during a round
+ * - Round ends when all members of a team are eliminated
+ * - Winning team gets a round point
+ * - Game ends when a team reaches roundLimit wins
+ */
 export class TeamDeathmatchGameMode extends GameMode {
-    public scores: { [team: string]: number } = {
+    // Round wins per team
+    public roundWins: { [team: string]: number } = {
         'TaskForce': 0,
         'OpFor': 0
     };
-    public scoreLimit: number = 30; // Kill limit
-    public maxEnemies: number = 5;
-    public maxFriendlies: number = 4; // +1 Player = 5
-    private spawnTimer: number = 0;
     
-    constructor(game: Game) {
-        super(game);
-    }
+    // Round configuration
+    public roundLimit: number = 5; // First to 5 wins
+    public botsPerTeam: number = 5; // 5 vs 5 target
 
-    public init(): void {
-        console.log("Initializing Team Deathmatch");
-        this.scores['TaskForce'] = 0;
-        this.scores['OpFor'] = 0;
-    }
+    // ...
 
-    public update(dt: number): void {
-        const allBots = this.game.getGameObjects().filter(go => go instanceof Enemy && go.health > 0);
-        const opForCount = allBots.filter(b => b.team === 'OpFor').length;
-        const taskForceCount = allBots.filter(b => b.team === 'Player').length; // Bots on Player team
-
-        this.spawnTimer += dt;
-        if (this.spawnTimer > 1.0) { // Check every 1s
-             if (opForCount < this.maxEnemies) {
-                 this.spawnBot('OpFor');
-             }
-             if (taskForceCount < this.maxFriendlies) {
-                 this.spawnBot('Player');
-             }
-             this.spawnTimer = 0;
+    private startNewRound(): void {
+        this.cleanupRound(); // Ensure clean slate (removes any existing bots)
+        
+        this.roundNumber++;
+        this.roundActive = true;
+        this.roundEndTimer = 0;
+        
+        console.log(`\n=== ROUND ${this.roundNumber} START ===`);
+        console.log(`TaskForce: ${this.roundWins['TaskForce']} | OpFor: ${this.roundWins['OpFor']}`);
+        
+        // Clear old trackers (redundant with cleanupRound logic but safe)
+        this.taskForceAlive.clear();
+        this.opForAlive.clear();
+        
+        // Spawn teams
+        this.spawnTeams();
+        
+        // Register player if alive
+        if (this.game.player && this.game.player.health > 0) {
+            this.taskForceAlive.add(this.game.player);
         }
     }
 
-    private spawnBot(team: string) {
-        let pos: THREE.Vector3;
-        // Select spawns based on team
-        const spawns = team === 'OpFor' ? this.game.availableSpawns.T : this.game.availableSpawns.CT;
+    private spawnTeams(): void {
+        // Spawn TaskForce bots (teammates)
+        // Aim for 5 members total. If player exists, spawn 4 bots.
+        const teammateCount = this.botsPerTeam - 1;
+        const ctSpawns = this.game.availableSpawns?.CT || [];
         
-        if (spawns && spawns.length > 0) {
-             // Pick random spawn
-            pos = spawns[Math.floor(Math.random() * spawns.length)].clone();
-            // Add random jitter
+        for (let i = 0; i < teammateCount; i++) {
+            const pos = this.getSpawnPosition(ctSpawns);
+            const bot = new Enemy(this.game, pos, 'Player'); // 'Player' team = TaskForce
+            this.game.addGameObject(bot);
+            this.taskForceAlive.add(bot);
+        }
+        
+        // Spawn OpFor bots (enemies)
+        // Spawn full team
+        const tSpawns = this.game.availableSpawns?.T || [];
+        for (let i = 0; i < this.botsPerTeam; i++) {
+            const pos = this.getSpawnPosition(tSpawns);
+            const bot = new Enemy(this.game, pos, 'OpFor');
+            this.game.addGameObject(bot);
+            this.opForAlive.add(bot);
+        }
+        
+        console.log(`Spawned ${teammateCount} TaskForce + ${this.botsPerTeam} OpFor bots`);
+    }
+
+    private getSpawnPosition(spawns: THREE.Vector3[]): THREE.Vector3 {
+        if (spawns.length > 0) {
+            const pos = spawns[Math.floor(Math.random() * spawns.length)].clone();
             pos.x += (Math.random() - 0.5) * 5;
             pos.z += (Math.random() - 0.5) * 5;
-        } else {
-             // Fallback
-            const angle = Math.random() * Math.PI * 2;
-            const radius = 20 + Math.random() * 20;
-            const x = Math.sin(angle) * radius;
-            const z = Math.cos(angle) * radius;
-            pos = new THREE.Vector3(x, 1, z);
+            return pos;
         }
+        
+        // Fallback
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 20 + Math.random() * 20;
+        return new THREE.Vector3(
+            Math.sin(angle) * radius,
+            1,
+            Math.cos(angle) * radius
+        );
+    }
 
-        const bot = new Enemy(this.game, pos, team);
-        this.game.addGameObject(bot);
+    private checkRoundEnd(): void {
+        // Update alive counts (in case entities died outside of onEntityDeath)
+        this.updateAliveCounts();
+        
+        const taskForceCount = this.taskForceAlive.size;
+        const opForCount = this.opForAlive.size;
+        
+        // Check win conditions
+        if (taskForceCount === 0 && opForCount > 0) {
+            this.endRound('OpFor');
+        } else if (opForCount === 0 && taskForceCount > 0) {
+            this.endRound('TaskForce');
+        } else if (taskForceCount === 0 && opForCount === 0) {
+            // Draw - no one wins this round
+            this.endRound(null);
+        }
+    }
+
+    private updateAliveCounts(): void {
+        // Remove dead entities from alive sets
+        for (const entity of this.taskForceAlive) {
+            if (entity instanceof Enemy && entity.health <= 0) {
+                this.taskForceAlive.delete(entity);
+            } else if (entity === this.game.player && this.game.player.health <= 0) {
+                this.taskForceAlive.delete(entity);
+            }
+        }
+        
+        for (const entity of this.opForAlive) {
+            if (entity instanceof Enemy && entity.health <= 0) {
+                this.opForAlive.delete(entity);
+            }
+        }
+    }
+
+    private endRound(winner: string | null): void {
+        this.roundActive = false;
+        this.roundEndTimer = 0;
+        
+        if (winner) {
+            this.roundWins[winner]++;
+            console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
+        } else {
+            console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
+        }
+        
+        console.log(`Score: TaskForce ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']} OpFor`);
+        
+        // Check for game win
+        if (this.roundWins['TaskForce'] >= this.roundLimit) {
+            this.endGame('TaskForce');
+        } else if (this.roundWins['OpFor'] >= this.roundLimit) {
+            this.endGame('OpFor');
+        }
+        
+        // Clean up dead bodies for next round
+        this.cleanupRound();
+    }
+
+    private cleanupRound(): void {
+        // Remove all enemy objects
+        const toRemove = this.game.getGameObjects().filter(go => go instanceof Enemy);
+        toRemove.forEach(go => {
+            if (go instanceof Enemy) {
+                go.dispose();
+            }
+        });
+        
+        // Reset player health for next round
+        if (this.game.player) {
+            this.game.player.health = 100;
+        }
+    }
+
+    private endGame(winner: string): void {
+        this.isGameOver = true;
+        console.log(`\n========================================`);
+        console.log(`     ${winner} WINS THE GAME!`);
+        console.log(`     Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
+        console.log(`========================================`);
+        
+        // Simple game over for now
+        setTimeout(() => {
+            alert(`${winner} Wins the Match!\n\nFinal Score:\nTaskForce: ${this.roundWins['TaskForce']}\nOpFor: ${this.roundWins['OpFor']}`);
+            location.reload();
+        }, 2000);
     }
 
     public onEntityDeath(victim: GameObject, killer?: GameObject): void {
-        if (!killer) return;
-
-        // Scoring Logic
-        // If killer is TaskForce (Player or Bot) and Victim is OpFor -> TaskForce Point
-        // If killer is OpFor and Victim is TaskForce -> OpFor Point
+        // Remove from alive tracking
+        if (victim.team === 'Player' || victim === this.game.player) {
+            this.taskForceAlive.delete(victim);
+        } else if (victim.team === 'OpFor') {
+            this.opForAlive.delete(victim);
+        }
         
-        // Normalize Teams
-        const killerTeam = killer.team === 'Player' ? 'TaskForce' : killer.team;
-        const victimTeam = victim.team === 'Player' ? 'TaskForce' : victim.team;
-
-        // Friendly Fire Check? (Assume no negative score for now)
-        if (killerTeam !== victimTeam) {
-            // Team Score
-            if (this.scores[killerTeam] !== undefined) {
-                this.scores[killerTeam]++;
-                
-                 // Check Win
-                if (this.scores[killerTeam] >= this.scoreLimit) {
-                    this.game.gameMode = this; // Should arguably freeze or end game
-                    alert(`${killerTeam} Wins!`);
-                    location.reload(); 
-                }
-            }
-
-            // Individual Score
-            if (killer instanceof Enemy) {
-                killer.score++;
-            } else if (killer === this.game.player) {
-                // Player score tracking? Player class doesn't have score yet via this interface?
-                // Actually we can just track it here if we wanted, or add it to Player.
-                // For now, let's assume we read from a property or just trust the global?
-                // The scoreboard readout below uses a manual entry for "You" which reads team score currently.
-                // Let's fix that.
-            }
+        // Track individual kills
+        if (killer instanceof Enemy) {
+            killer.score++;
         }
     }
     
-    public registerEntity(_entity: GameObject): void {}
+    public registerEntity(_entity: GameObject): void {
+        // No dynamic registration in round-based mode
+    }
 
     public getScoreboardData(): ScoreData[] {
         const data: ScoreData[] = [];
         
-        // 1. Player
+        // Header info
+        data.push({
+            name: `--- ROUND ${this.roundNumber} ---`,
+            team: '',
+            score: 0,
+            status: `${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`
+        });
+        
+        // Player
         if (this.game.player) {
             data.push({
                 name: 'You',
                 team: 'TaskForce',
-                score: this.scores['TaskForce'], // TODO: Track individual player kills properly
+                score: 0,
                 status: this.game.player.health > 0 ? 'Alive' : 'Dead'
             });
         }
         
-        // 2. All Bots (Enemies and Teammates)
+        // All Bots
         const allObjects = this.game.getGameObjects();
         for (const go of allObjects) {
             if (go instanceof Enemy) {

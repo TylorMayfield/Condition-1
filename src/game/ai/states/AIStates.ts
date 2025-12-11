@@ -69,6 +69,7 @@ export class PatrolState implements IAIStateHandler {
     private readonly refillThreshold = 5;  // Refill when queue drops below this
     private failedAttempts: number = 0;
     private readonly maxFailedAttempts = 5;
+    private pauseTimer: number = 0;
 
     enter(ai: EnemyAI): void {
         ai.movement.setRunning(false);
@@ -79,7 +80,7 @@ export class PatrolState implements IAIStateHandler {
         this.refillQueue(ai);
     }
 
-    update(ai: EnemyAI, _dt: number): AIStateId | null {
+    update(ai: EnemyAI, dt: number): AIStateId | null {
         // Wait for Recast agent to be registered
         if (!ai.useRecast) {
             return null;
@@ -131,16 +132,41 @@ export class PatrolState implements IAIStateHandler {
 
         const distToTarget = pos.distanceTo(this.currentTarget);
 
-        // Check if we've arrived - immediately transition to next
+        // Check if we've arrived - pause and scan before next point
         if (distToTarget < 2.0) {
             ai.blackboard.reachedDestination();
-            // Get next target immediately
-            if (this.patrolQueue.length > 0) {
-                this.currentTarget = this.patrolQueue.shift()!;
-                ai.blackboard.setDestination(this.currentTarget);
-                ai.movement.moveTo(this.currentTarget);
+            
+            // Methodical: Pause and scan at corners/points
+            if (this.pauseTimer <= 0) {
+                this.pauseTimer = 2.0 + Math.random() * 2.0; // Pause 2-4 seconds
+                ai.movement.stop();
             } else {
-                this.currentTarget = null;
+                this.pauseTimer -= dt;
+                
+                // Scan behavior: look left/right (visual only)
+                const scanSpeed = 1.0;
+                const angle = Math.sin(this.pauseTimer * scanSpeed) * Math.PI * 0.4;
+                if (ai.owner.mesh) {
+                     // Calculate a look target based on current forward + offset
+                     // We can't easily rotate body directly as physics controls it, 
+                     // but we can tell movement to look at a point.
+                     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(ai.owner.mesh.quaternion);
+                     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(ai.owner.mesh.quaternion);
+                     const lookDir = forward.clone().add(right.multiplyScalar(Math.sin(angle)));
+                     const lookTarget = pos.clone().add(lookDir.multiplyScalar(5));
+                     ai.movement.lookAt(lookTarget);
+                }
+
+                if (this.pauseTimer <= 0) {
+                    // Done waiting, get next point
+                    if (this.patrolQueue.length > 0) {
+                        this.currentTarget = this.patrolQueue.shift()!;
+                        ai.blackboard.setDestination(this.currentTarget);
+                        ai.movement.moveTo(this.currentTarget);
+                    } else {
+                        this.currentTarget = null;
+                    }
+                }
             }
             return null;
         }
@@ -462,6 +488,8 @@ export class SearchState implements IAIStateHandler {
     public readonly stateId = AIStateId.Search;
     private searchPoints: THREE.Vector3[] = [];
     private currentSearchIndex: number = 0;
+    private scanTimer: number = 0;
+    private scanPhase: number = 0; // 0=Move, 1=ScanLeft, 2=ScanRight
 
     enter(ai: EnemyAI): void {
         ai.movement.setRunning(false);
@@ -469,7 +497,7 @@ export class SearchState implements IAIStateHandler {
         this.currentSearchIndex = 0;
     }
 
-    update(ai: EnemyAI, _dt: number): AIStateId | null {
+    update(ai: EnemyAI, dt: number): AIStateId | null {
         // Found target?
         if (ai.target && ai.senses.canSee(ai.target)) {
             ai.blackboard.sawTarget(
@@ -478,14 +506,41 @@ export class SearchState implements IAIStateHandler {
             return AIStateId.Chase;
         }
 
-        // Move through search points
+        // Move through search points with scanning
         if (this.currentSearchIndex < this.searchPoints.length) {
             const target = this.searchPoints[this.currentSearchIndex];
             const pos = ai.getOwnerPosition();
 
-            if (pos && pos.distanceTo(target) < 2.0) {
-                this.currentSearchIndex++;
+            if (pos && pos.distanceTo(target) < 1.5) {
+                // Arrived at point, start scan
+                if (this.scanPhase === 0) {
+                    this.scanPhase = 1;
+                    this.scanTimer = 1.0;
+                    ai.movement.stop();
+                }
+
+                // Scan logic
+                this.scanTimer -= dt;
+                if (this.scanTimer <= 0) {
+                    if (this.scanPhase === 1) {
+                         this.scanPhase = 2; // Switch to scan right
+                         this.scanTimer = 1.0;
+                    } else if (this.scanPhase === 2) {
+                        // Done scanning this point
+                        this.currentSearchIndex++;
+                        this.scanPhase = 0;
+                    }
+                } else {
+                    // Scanning animation/rotation
+                    if (ai.owner.mesh) {
+                        const angleOffset = this.scanPhase === 1 ? -1 : 1;
+                        // Rotate search vector
+                        const lookTarget = pos.clone().add(new THREE.Vector3(Math.cos(angleOffset), 0, Math.sin(angleOffset)).multiplyScalar(5));
+                        ai.movement.lookAt(lookTarget);
+                    }
+                }
             } else {
+                this.scanPhase = 0; // Reset if moving
                 ai.movement.moveTo(target);
             }
         } else {

@@ -28,6 +28,7 @@ export class PlayerController {
     private isNoclip: boolean = false;
     private flashlight: THREE.SpotLight | null = null;
     private flashlightOn: boolean = false;
+    private footstepTimer: number = 0; // Timer for footstep sounds
 
     constructor(game: Game, gameObject: GameObject) {
         this.game = game;
@@ -155,19 +156,21 @@ export class PlayerController {
         body.velocity.x = velocity.x;
         body.velocity.z = velocity.z;
 
-        // Emit Sound if moving and not crouching
-        if (velocity.length() > 0) {
-            const soundRadius = this.isCrouching ? 2 : (currentSpeed > this.speed ? 20 : 10); // Crouch=2, Walk=10, Run=20
-            // Throttle this? SoundManager runs every frame or on event?
-            // emitting every frame is fine for simple distance check, but might flood logs.
-            // Ideally we do this on interval or just let it flood for POC.
-            // Let's add a random chance to avoid constant spam in log
-            if (Math.random() < 0.05) {
-                this.game.soundManager.emitSound(
-                    new THREE.Vector3(body.position.x, body.position.y, body.position.z),
-                    soundRadius
-                );
+        // Footstep sounds with proper timing
+        if (velocity.length() > 0 && this.checkGrounded()) {
+            // Calculate footstep interval based on speed
+            const isRunning = currentSpeed > this.speed;
+            const footstepInterval = this.isCrouching ? 0.6 : (isRunning ? 0.3 : 0.45);
+            
+            this.footstepTimer += 1 / 60; // Assume ~60fps, adjust if needed
+            if (this.footstepTimer >= footstepInterval) {
+                this.footstepTimer = 0;
+                const pos = new THREE.Vector3(body.position.x, body.position.y, body.position.z);
+                const volume = this.isCrouching ? 0.15 : (isRunning ? 0.5 : 0.3);
+                this.game.soundManager.playFootstep(pos, volume);
             }
+        } else {
+            this.footstepTimer = 0; // Reset when not moving
         }
 
         // Jump

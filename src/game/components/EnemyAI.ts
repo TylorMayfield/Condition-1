@@ -38,6 +38,7 @@ export const AIState = {
     Flank: 6,
     Advance: 7,
     Follow: 8,
+    Search: 9,
 } as const;
 export type AIState = (typeof AIState)[keyof typeof AIState];
 
@@ -234,22 +235,34 @@ export class EnemyAI {
 
 
 
-    private requestAlternatePath() {
-        const pos = this.getOwnerPosition();
-        if (!pos || !this.game.recastNav) return;
-        for (let i = 0; i < 3; i++) {
-            const pt = this.game.recastNav.getRandomPointAround(pos, 3 + Math.random() * 2);
-            if (pt && this.evaluatePatrolPoint(pt) > 0) {
-                console.log(`[EnemyAI] ${this.owner.name} avoiding obstacle, rerouting`);
-                this.movement.moveTo(pt);
-                return;
-            }
-        }
-    }
-
 
 
     private updateTargeting(dt: number) {
+        // 1. Cone Detection (Short range, "Slice the Pie")
+        // Scan 3 rays, 45 degrees, 15 meters
+        const coneHits = this.coneDetector.castCone(15, 45, 3);
+        if (coneHits.length > 0) {
+            // Process hits to see if we found an enemy
+            for (const result of coneHits) {
+                 if (result.body && (result.body as any).gameObject) {
+                     const go = (result.body as any).gameObject as GameObject;
+                     if (go.team !== this.owner.team && go.team !== 'Neutral') {
+                         
+                         if (this.senses.canSee(go)) {
+                             // Found target in cone!
+                             this.target = go;
+                             this.scanTimer = 0;
+                             if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
+                                 console.log(`[AI] ${this.owner.name} spotted target via Cone Scan!`);
+                                 this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
+                             }
+                             return; // Found one, stop scanning
+                         }
+                     }
+                 }
+            }
+        }
+
         if (!this.target || (this.target as any).health <= 0) {
             this.target = null;
             this.scanTimer += dt * 1000;

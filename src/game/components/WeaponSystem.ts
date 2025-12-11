@@ -211,6 +211,9 @@ export class WeaponSystem extends Weapon {
         this.currentRecoil.x += recoilX;
         controller.applyRecoil(recoilX, recoilY); // Camera recoil
 
+        // === MUZZLE FLASH EFFECT ===
+        this.createMuzzleFlash();
+
         // Muzzle Position (Approximation)
         // We want to shoot from Camera center basically, but visually from gun?
         // Tactical shooters usually raycast from camera center. 
@@ -239,5 +242,35 @@ export class WeaponSystem extends Weapon {
 
         // Fire Base Method
         this.shoot(muzzlePos, direction);
+    }
+
+    private createMuzzleFlash() {
+        // Create flash light
+        const flashLight = new THREE.PointLight(0xffaa00, 3, 10);
+        flashLight.position.set(0.15, -0.15, -1.0); // At barrel tip
+        this.mesh.add(flashLight);
+
+        // Create flash sprite
+        const spriteMaterial = new THREE.SpriteMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending
+        });
+        const flashSprite = new THREE.Sprite(spriteMaterial);
+        flashSprite.scale.set(0.3, 0.3, 0.3);
+        flashSprite.position.set(0.15, -0.15, -1.0);
+        this.mesh.add(flashSprite);
+
+        // Add slight random rotation to sprite for variety
+        flashSprite.material.rotation = Math.random() * Math.PI * 2;
+
+        // Remove after 50ms
+        setTimeout(() => {
+            this.mesh.remove(flashLight);
+            this.mesh.remove(flashSprite);
+            flashLight.dispose();
+            spriteMaterial.dispose();
+        }, 50);
     }
 }

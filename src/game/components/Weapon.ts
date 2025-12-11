@@ -40,8 +40,8 @@ export abstract class Weapon {
         // Spawn Bullet via Manager
         this.game.ballisticsManager.spawnBullet(origin, direction, this.muzzleVelocity, this.damage, this.owner);
 
-        // Sound
-        this.game.soundManager.emitSound(origin, 50);
+        // Play 3D gunshot sound
+        this.game.soundManager.playGunshot(origin);
 
         // Recoil
         // Handled by implementation (Camera vs Animation recoil)
