@@ -23,7 +23,9 @@ export class Enemy extends GameObject {
     // Identity
     public name: string;
     public score: number = 0;
-    public damageDealt: number = 0; // Track damage this bot has dealt
+    public damageDealt: number = 0; // Track total damage this bot has dealt
+    public enemyDamageDealt: number = 0; // Damage dealt to enemies only
+    public friendlyDamageDealt: number = 0; // Friendly fire damage
 
     // Animation State
     public aimWeight: number = 0; // 0 = Relaxed, 1 = Aiming
@@ -178,6 +180,17 @@ export class Enemy extends GameObject {
         // Credit damage to attacker (final damage after multiplier)
         if (attacker && 'damageDealt' in attacker) {
             attacker.damageDealt += finalDamage;
+
+            // Track enemy damage vs friendly fire separately
+            if ('team' in attacker) {
+                if (attacker.team === this.team) {
+                    // Friendly fire - same team
+                    (attacker as any).friendlyDamageDealt = ((attacker as any).friendlyDamageDealt || 0) + finalDamage;
+                } else {
+                    // Enemy damage - different team
+                    (attacker as any).enemyDamageDealt = ((attacker as any).enemyDamageDealt || 0) + finalDamage;
+                }
+            }
         }
 
         // Log hit for debugging

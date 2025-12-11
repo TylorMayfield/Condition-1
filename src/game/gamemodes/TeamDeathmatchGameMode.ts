@@ -40,6 +40,7 @@ export class TeamDeathmatchGameMode extends GameMode {
     // Round configuration
     public roundLimit: number = 5; // First to 5 wins
     public botsPerTeam: number = 5; // 5 vs 5 target
+    public roundTimeLimit: number = 300; // 5 minutes per round in seconds
 
     // Round state
     private roundActive: boolean = false;
@@ -47,6 +48,7 @@ export class TeamDeathmatchGameMode extends GameMode {
     private roundEndTimer: number = 0;
     private roundEndDelay: number = 3; // Seconds before countdown starts
     private isGameOver: boolean = false;
+    private roundTimer: number = 0; // Current round time remaining
 
     // Spectator state
     public isSpectatorOnly: boolean = false; // Toggle this to true for Spectate Only mode
@@ -117,7 +119,21 @@ export class TeamDeathmatchGameMode extends GameMode {
             return;
         }
 
-        // Check for round end condition
+        // Update round timer during active round
+        this.roundTimer -= dt;
+
+        // Update HUD timer display
+        (this.game.hudManager as any).showRoundTimer(this.getFormattedRoundTime());
+
+        // Check for round timeout
+        if (this.roundTimer <= 0) {
+            console.log('[TDM] Round timeout! Determining winner by damage...');
+            (this.game.hudManager as any).hideRoundTimer();
+            this.handleRoundTimeout();
+            return;
+        }
+
+        // Check for round end condition (one team eliminated)
         this.checkRoundEnd();
     }
 
@@ -155,6 +171,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Start countdown (don't activate round yet)
         this.countdownActive = true;
         this.countdownTimer = this.countdownDuration;
+        this.roundTimer = this.roundTimeLimit; // Initialize round timer
         this.roundActive = false; // Round starts after countdown
     }
 
@@ -362,6 +379,46 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Clean up dead bodies for next round
         this.cleanupRound();
+    }
+
+    /** Handle round ending due to time limit expiration */
+    private handleRoundTimeout(): void {
+        // Calculate team damage totals to determine winner
+        let taskForceDamage = 0;
+        let opForDamage = 0;
+
+        for (const p of this.participants) {
+            if (p.team === 'TaskForce') {
+                taskForceDamage += p.score;
+            } else if (p.team === 'OpFor') {
+                opForDamage += p.score;
+            }
+        }
+
+        console.log(`[TDM] Timeout! TaskForce damage: ${taskForceDamage}, OpFor damage: ${opForDamage}`);
+
+        // Team with most damage wins
+        if (taskForceDamage > opForDamage) {
+            this.endRound('TaskForce');
+        } else if (opForDamage > taskForceDamage) {
+            this.endRound('OpFor');
+        } else {
+            // Exact tie - draw
+            this.endRound(null);
+        }
+    }
+
+    /** Get remaining round time in seconds for HUD display */
+    public getRoundTimeRemaining(): number {
+        return Math.max(0, this.roundTimer);
+    }
+
+    /** Format time as MM:SS for display */
+    public getFormattedRoundTime(): string {
+        const totalSeconds = Math.max(0, Math.ceil(this.roundTimer));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
     private cleanupRound(): void {

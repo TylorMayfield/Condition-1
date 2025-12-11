@@ -194,7 +194,11 @@ export class Scoreboard extends HUDComponent {
 
     // Helper to create player row
     private createPlayerRow(entry: ScoreData, isBlue: boolean): string {
-        const isAlive = entry.status === 'Alive' || entry.status === 'Active';
+        // Check if alive - status can be 'Alive', 'Active', 'HP: X', or similar
+        const isAlive = entry.status === 'Alive' ||
+            entry.status === 'Active' ||
+            entry.status.startsWith('HP:') ||
+            (entry.status !== 'Dead' && !entry.status.toLowerCase().includes('dead'));
         const isYou = entry.name === 'You';
         const bgColor = isBlue
             ? (isAlive ? 'rgba(0,100,200,0.15)' : 'rgba(50,50,50,0.3)')

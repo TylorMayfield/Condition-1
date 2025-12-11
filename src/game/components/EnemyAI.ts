@@ -101,6 +101,10 @@ export class EnemyAI {
     private registrationTimeout: any = null;
     private recoveryTimer: number = 0;
 
+    // RL Policy (optional - if set, overrides FSM)
+    public rlPolicy: import('../rl/RLPolicy').IRLPolicy | null = null;
+    public useRLPolicy: boolean = false;
+
     constructor(game: Game, owner: Enemy, personality: AIPersonality) {
         this.game = game;
         this.owner = owner;
@@ -225,12 +229,81 @@ export class EnemyAI {
         // Target acquisition
         this.updateTargeting(dt);
 
-        // State machine update
-        this.stateMachine.update(dt);
+        // RL Policy mode: use trained model instead of FSM
+        if (this.useRLPolicy && this.rlPolicy && this.rlPolicy.isLoaded()) {
+            this.executeRLPolicy();
+        } else {
+            // State machine update (traditional FSM)
+            this.stateMachine.update(dt);
+        }
 
         // Movement and look direction updates
         this.movement.update();
         this.updateLookDirection(dt);
+    }
+
+    /** Execute RL policy to determine action */
+    private executeRLPolicy(): void {
+        if (!this.rlPolicy) return;
+
+        const obs = this.buildObservation();
+        const action = this.rlPolicy.predict(obs);
+        this.applyAction(action);
+    }
+
+    /** Build observation from current game state */
+    private buildObservation(): import('../rl/EnvWrapper').Observation {
+        const body = this.owner.body;
+        const pos = body ? body.position : { x: 0, y: 0, z: 0 };
+        const vel = body ? body.velocity : { x: 0, y: 0, z: 0 };
+
+        return {
+            position: [pos.x, pos.y, pos.z],
+            velocity: [vel.x, vel.y, vel.z],
+            health: this.owner.health,
+            armor: 0,
+            weaponId: 0, // No weapon ID system yet
+            ammo: (this.owner.weapon as any)?.currentAmmo ?? 30,
+            crouch: (this.owner as any).isCrouching ? 1 : 0,
+            grenades: (this.owner as any).grenades ?? 0,
+            team: this.owner.team === 'TaskForce' ? 0 : 1,
+            visionGrid: new Array(32 * 32).fill(0), // Simplified for now
+        };
+    }
+
+    /** Apply action from RL policy to the bot */
+    private applyAction(action: import('../rl/EnvWrapper').Action): void {
+        const speed = 5;
+        const body = this.owner.body;
+        const mesh = this.owner.mesh;
+
+        // Movement
+        if (body) {
+            body.velocity.set(action.moveX * speed, body.velocity.y, action.moveZ * speed);
+        }
+
+        // Look direction
+        if (mesh) {
+            mesh.rotation.y = action.yaw;
+        }
+
+        // Fire - use pullTrigger method if target exists
+        if (action.fire && this.owner.weapon && this.target) {
+            const targetPos = this.target.mesh?.position;
+            if (targetPos) {
+                this.owner.weapon.pullTrigger(targetPos);
+            }
+        }
+
+        // Crouch (if method exists)
+        if (action.crouchToggle && typeof (this.owner as any).toggleCrouch === 'function') {
+            (this.owner as any).toggleCrouch();
+        }
+
+        // Grenade (if method exists)
+        if (action.throwGrenade && typeof (this.owner as any).throwGrenade === 'function') {
+            (this.owner as any).throwGrenade();
+        }
     }
 
 
@@ -244,22 +317,22 @@ export class EnemyAI {
         if (coneHits.length > 0) {
             // Process hits to see if we found an enemy
             for (const result of coneHits) {
-                 if (result.body && (result.body as any).gameObject) {
-                     const go = (result.body as any).gameObject as GameObject;
-                     if (go.team !== this.owner.team && go.team !== 'Neutral') {
-                         
-                         if (this.senses.canSee(go)) {
-                             // Found target in cone!
-                             this.target = go;
-                             this.scanTimer = 0;
-                             if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
-                                 console.log(`[AI] ${this.owner.name} spotted target via Cone Scan!`);
-                                 this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
-                             }
-                             return; // Found one, stop scanning
-                         }
-                     }
-                 }
+                if (result.body && (result.body as any).gameObject) {
+                    const go = (result.body as any).gameObject as GameObject;
+                    if (go.team !== this.owner.team && go.team !== 'Neutral') {
+
+                        if (this.senses.canSee(go)) {
+                            // Found target in cone!
+                            this.target = go;
+                            this.scanTimer = 0;
+                            if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
+                                console.log(`[AI] ${this.owner.name} spotted target via Cone Scan!`);
+                                this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
+                            }
+                            return; // Found one, stop scanning
+                        }
+                    }
+                }
             }
         }
 

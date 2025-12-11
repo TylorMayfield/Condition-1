@@ -2,6 +2,7 @@ import { Game } from '../../engine/Game';
 import { SettingsManager } from '../SettingsManager';
 import { TeamDeathmatchGameMode } from '../gamemodes/TeamDeathmatchGameMode';
 import { FreeForAllGameMode } from '../gamemodes/FreeForAllGameMode';
+import { RLTrainingGameMode } from '../gamemodes/RLTrainingGameMode';
 // @ts-ignore
 import menuHtml from './main_menu.html?raw';
 // @ts-ignore
@@ -16,6 +17,7 @@ export class MenuSystem {
     // State
     private isVisible: boolean = false;
     private isGameStarted: boolean = false;
+    private preloadedModelFile: File | null = null;
 
     private availableMaps = [
         'killhouse',
@@ -88,6 +90,46 @@ export class MenuSystem {
         document.getElementById('setting-sens')?.addEventListener('input', (e) => {
             document.getElementById('value-sens')!.textContent = (e.target as HTMLInputElement).value;
         });
+
+        // Game Mode Toggle - Show/hide RL training options
+        const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
+        modeSelect?.addEventListener('change', () => {
+            this.updateModeOptions(modeSelect.value);
+        });
+
+        // RL Training - Load Model button
+        const loadModelBtn = document.getElementById('rl-load-model-btn');
+        const modelFileInput = document.getElementById('rl-model-file-input') as HTMLInputElement;
+
+        loadModelBtn?.addEventListener('click', () => {
+            modelFileInput?.click();
+        });
+
+        modelFileInput?.addEventListener('change', () => {
+            if (modelFileInput.files && modelFileInput.files[0]) {
+                this.preloadedModelFile = modelFileInput.files[0];
+                const statusEl = document.getElementById('rl-model-status');
+                if (statusEl) {
+                    statusEl.textContent = `✅ Model loaded: ${this.preloadedModelFile.name}`;
+                    statusEl.style.color = '#4ade80';
+                }
+            }
+        });
+    }
+
+    private updateModeOptions(mode: string) {
+        const spectatorOptions = document.getElementById('spectator-options');
+        const rlTrainingOptions = document.getElementById('rl-training-options');
+
+        if (mode === 'rl-training') {
+            // Hide spectator, show RL training options
+            if (spectatorOptions) spectatorOptions.style.display = 'none';
+            if (rlTrainingOptions) rlTrainingOptions.style.display = 'block';
+        } else {
+            // Show spectator, hide RL training options
+            if (spectatorOptions) spectatorOptions.style.display = 'flex';
+            if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
+        }
     }
 
     private bindBtn(id: string, callback: () => void) {
@@ -240,7 +282,27 @@ export class MenuSystem {
             console.log(`Selected Game Mode: ${modeValue}`);
 
             // Switch Game Mode
-            if (modeValue === 'ffa') {
+            if (modeValue === 'rl-training') {
+                // RL Training Mode
+                const botsPerTeam = parseInt((document.getElementById('rl-bots-per-team') as HTMLInputElement)?.value || '3');
+                const roundDuration = parseInt((document.getElementById('rl-round-duration') as HTMLInputElement)?.value || '30');
+
+                const rlMode = new RLTrainingGameMode(this.game, {
+                    botsPerTeam,
+                    roundDurationSeconds: roundDuration
+                });
+
+                this.game.gameMode = rlMode;
+
+                // Load pre-selected model if any
+                if (this.preloadedModelFile) {
+                    rlMode.loadModelFromFile(this.preloadedModelFile).then(success => {
+                        if (success) {
+                            console.log('[Menu] Pre-loaded model applied to training mode');
+                        }
+                    });
+                }
+            } else if (modeValue === 'ffa') {
                 this.game.gameMode = new FreeForAllGameMode(this.game);
             } else {
                 // Default to TDM
