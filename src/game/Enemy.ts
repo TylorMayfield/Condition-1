@@ -178,7 +178,13 @@ export class Enemy extends GameObject {
         // transform control: attach to scene, maintain world transform
         const parts: THREE.Object3D[] = [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg];
         parts.forEach(part => {
-            this.game.scene.attach(part);
+             // Offset slightly upward BEFORE attaching to scene to ensure physics start clear of ground
+             // (THREE.Scene.attach preserves world transform, so we modify transform first)
+             // Actually, attach PRESERVES world transform, so moving it while child of Group moves it relative to Group.
+             // Group is at world pos.
+             part.position.y += 0.2; 
+             part.updateMatrixWorld(); // Update world matrix with new local pos
+             this.game.scene.attach(part);
         });
 
         // Remove the container mesh (Group) as it is now empty/useless

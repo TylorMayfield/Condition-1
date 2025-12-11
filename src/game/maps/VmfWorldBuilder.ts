@@ -242,7 +242,12 @@ export class VmfWorldBuilder {
 
             if (indices.length >= 3) {
                 const shape = new CANNON.Trimesh(vertices, indices);
-                const body = new CANNON.Body({ mass: 0, shape: shape });
+                const body = new CANNON.Body({ 
+                    mass: 0, 
+                    shape: shape,
+                    collisionFilterGroup: 1, // World Group
+                    collisionFilterMask: -1 // Collide with everything
+                });
                 this.world.addBody(body);
                 totalPhysicsBodies++;
             }
