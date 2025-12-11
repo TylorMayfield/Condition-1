@@ -406,25 +406,41 @@ export class Enemy extends GameObject {
         // Posture Overrides based on State
         const aiState = this.ai.getState();
 
-        // Combat Stance (Aiming)
-        // If Attacking, Chasing, or Alert
-        if (aiState === 2 || aiState === 1 || aiState === 6 || aiState === 7 || aiState === 4) {
-            // Bring right arm up to aim
-            this.rightArm.rotation.x = -Math.PI / 2; // Point forward
-            this.rightArm.rotation.z = -0.1; // Slight tilt
+        // Check if we should be aiming
+        // Attacking(2), Chasing(1), Alert(6), Guarding(7), Searching(4)
+        // Note: Using raw numbers for now to match previous logic, ideally use AIStateId enum
+        const shouldAim = (aiState === 2 || aiState === 1 || aiState === 6 || aiState === 7 || aiState === 4);
+        const targetAimWeight = shouldAim ? 1.0 : 0.0;
 
-            // Left arm supports
-            this.leftArm.rotation.x = -Math.PI / 2.2;
-            this.leftArm.rotation.z = 0.3; // Angle in
-            this.leftArm.rotation.y = 0.2;
+        // Lerp aim weight
+        this.aimWeight = THREE.MathUtils.lerp(this.aimWeight, targetAimWeight, dt * 10);
+
+        // Apply Aiming Pose on top of walk cycle
+        if (this.aimWeight > 0.01) {
+            // Right arm (Weapon)
+            // Relaxed: swinging with walk
+            // Aimed: -PI/2 (forward)
+            const currentRA_X = this.rightArm.rotation.x;
+            const targetRA_X = -Math.PI / 2;
+            this.rightArm.rotation.x = THREE.MathUtils.lerp(currentRA_X, targetRA_X, this.aimWeight);
+
+            this.rightArm.rotation.z = THREE.MathUtils.lerp(0, -0.1, this.aimWeight);
+
+            // Left arm (Support)
+            const currentLA_X = this.leftArm.rotation.x;
+            // Aimed: -PI/2.2 (-1.42), Aimed Z: 0.3, Aimed Y: 0.2
+            this.leftArm.rotation.x = THREE.MathUtils.lerp(currentLA_X, -Math.PI / 2.2, this.aimWeight);
+            this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.3, this.aimWeight);
+            this.leftArm.rotation.y = THREE.MathUtils.lerp(this.leftArm.rotation.y, 0.2, this.aimWeight);
 
             // Head looks intense/down sights
-            this.head.rotation.x = 0.1;
+            this.head.rotation.x = THREE.MathUtils.lerp(0, 0.1, this.aimWeight);
 
-            // If moving while aiming, reduce arm swing
-            if (isMoving) {
-                this.leftArm.rotation.x += Math.sin(this.time) * 0.1;
-                this.rightArm.rotation.x += Math.sin(this.time) * 0.1;
+            // Aim Wiggle while moving
+            if (isMoving && this.aimWeight > 0.5) {
+                const wiggle = Math.sin(this.time) * 0.05 * this.aimWeight;
+                this.leftArm.rotation.x += wiggle;
+                this.rightArm.rotation.x += wiggle;
             }
         }
     }
