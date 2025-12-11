@@ -742,4 +742,37 @@ export class HUDManager {
             }
         }
     }
+    public showRoundResult(winner: string, reason: string) {
+        if (!this.roundResultDisplay) {
+            this.roundResultDisplay = document.createElement('div');
+            this.roundResultDisplay.style.position = 'absolute';
+            this.roundResultDisplay.style.top = '30%';
+            this.roundResultDisplay.style.left = '50%';
+            this.roundResultDisplay.style.transform = 'translate(-50%, -50%)';
+            this.roundResultDisplay.style.textAlign = 'center';
+            this.roundResultDisplay.style.textShadow = '0 0 10px rgba(0,0,0,0.8)';
+            this.roundResultDisplay.style.fontFamily = "'Segoe UI', sans-serif";
+            this.container.appendChild(this.roundResultDisplay);
+        }
+
+        const color = winner === 'TaskForce' ? '#00ccff' : (winner === 'OpFor' ? '#ff3300' : '#ffffff');
+        
+        this.roundResultDisplay.innerHTML = `
+            <div style="font-size: 48px; font-weight: 800; color: ${color}; text-transform: uppercase; margin-bottom: 10px;">
+                ${winner ? winner + ' WINS' : 'ROUND DRAW'}
+            </div>
+            <div style="font-size: 24px; color: #fff; opacity: 0.8;">
+                ${reason}
+            </div>
+        `;
+        
+        this.roundResultDisplay.style.display = 'block';
+
+        // Auto hide after a few seconds
+        setTimeout(() => {
+            if (this.roundResultDisplay) this.roundResultDisplay.style.display = 'none';
+        }, 4000);
+    }
+    
+    private roundResultDisplay?: HTMLDivElement;
 }

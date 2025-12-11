@@ -7,7 +7,7 @@ export abstract class Weapon {
     public owner: any;
 
     // Stats
-    protected magazineSize: number = 30;
+    public magazineSize: number = 30;
     public currentAmmo: number = 30;
     public reserveAmmo: number = 90;
     protected fireRate: number = 100; // ms

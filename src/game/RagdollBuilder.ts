@@ -41,7 +41,7 @@ export class RagdollBuilder {
                 angularDamping: 0.5,
                 // CRITICAL: Set collision groups so ragdoll interacts with world geometry
                 collisionFilterGroup: 2, // Ragdoll group
-                collisionFilterMask: 1 | 2 // Collide with world (1) and other ragdolls (2)
+                collisionFilterMask: -1 // Collide with EVERYTHING (World, other ragdolls, default objects)
             });
             body.addShape(shape);
             

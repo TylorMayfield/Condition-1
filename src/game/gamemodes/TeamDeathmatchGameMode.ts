@@ -83,7 +83,11 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.spawnTeams();
         
         // Register player if alive
-        if (this.game.player && this.game.player.health > 0) {
+        // Register player and respawn
+        if (this.game.player) {
+            const ctSpawns = this.game.availableSpawns?.CT || [];
+            const spawnPos = this.getSpawnPosition(ctSpawns);
+            this.game.player.respawn(spawnPos);
             this.taskForceAlive.add(this.game.player);
         }
     }
@@ -173,9 +177,12 @@ export class TeamDeathmatchGameMode extends GameMode {
         
         if (winner) {
             this.roundWins[winner]++;
+            // const message = `${winner} WINS`;
             console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
+            (this.game.hudManager as any).showRoundResult(winner, `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
         } else {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
+            (this.game.hudManager as any).showRoundResult(null, "No survivors");
         }
         
         console.log(`Score: TaskForce ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']} OpFor`);

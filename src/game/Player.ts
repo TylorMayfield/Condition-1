@@ -199,4 +199,31 @@ export class Player extends GameObject {
             this.controller.setSensitivity(value);
         }
     }
+
+    public respawn(position: THREE.Vector3) {
+        console.log("Respawning Player...");
+        this.health = 100;
+        
+        // Reset Physics
+        if (this.body) {
+            this.body.position.set(position.x, position.y, position.z);
+            this.body.velocity.set(0, 0, 0);
+            this.body.angularVelocity.set(0, 0, 0);
+            // Restore upright constraint if it was disabled on death
+            this.body.fixedRotation = true;
+            this.body.quaternion.set(0, 0, 0, 1);
+            this.body.updateMassProperties();
+        }
+
+        // Reset Weapon
+        const weapon = this.getCurrentWeapon();
+        if (weapon) {
+            weapon.currentAmmo = weapon.magazineSize;
+            weapon.reserveAmmo = 20; // Or max reserve
+            weapon.isReloading = false;
+        }
+        
+        // Re-enable controls if disabled
+        this.game.input.lockCursor();
+    }
 }

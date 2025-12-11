@@ -193,7 +193,11 @@ export class Enemy extends GameObject {
         // 3. Create Ragdoll Physics
         // Initial velocity from the kill shot + current movement
         const initVel = new CANNON.Vec3(0, 0, 0);
-        if (forceVec) initVel.copy(forceVec as any);
+        if (forceVec) {
+             // CLAMP FORCE: Too much force causes tunneling through map
+             const clampedForce = forceVec.clone().clampLength(0, 10); // Max 10 m/s impulse
+             initVel.copy(clampedForce as any);
+        }
 
         const rd = RagdollBuilder.createRagdoll(this.game, {
             head: this.head,
