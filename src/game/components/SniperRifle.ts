@@ -145,7 +145,42 @@ export class SniperRifle extends Weapon {
         this.mesh.translateY(offset.y);
         this.mesh.translateZ(offset.z);
 
-        this.mesh.rotateX(this.currentRecoil.x);
+        // Reload Animation
+        let reloadRotation = 0;
+        let reloadPositionOffset = new THREE.Vector3(0, 0, 0);
+
+        if (this.isReloading) {
+            const progress = this.getReloadProgress();
+            // const easeInOut = (t: number): number => { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; };
+            
+            // 3-Stage animation: Down -> Cycle Bolt -> Up
+            if (progress < 0.2) {
+                // Lower weapon
+                const val = progress / 0.2;
+                reloadRotation = -Math.PI / 4 * val;
+                reloadPositionOffset.y = -0.2 * val;
+            } else if (progress < 0.7) {
+                // Hold Low (simulating bolt action)
+                reloadRotation = -Math.PI / 4;
+                reloadPositionOffset.y = -0.2;
+                // Add slight shake for bolt?
+                if (progress > 0.4 && progress < 0.5) {
+                    reloadPositionOffset.x = Math.sin(progress * 50) * 0.02;
+                }
+            } else {
+                // Raise weapon
+                const val = (progress - 0.7) / 0.3;
+                reloadRotation = -Math.PI / 4 * (1 - val);
+                reloadPositionOffset.y = -0.2 * (1 - val);
+            }
+        }
+
+        this.mesh.rotateX(this.currentRecoil.x + reloadRotation);
+        
+        // Apply Reload Position Offset
+        this.mesh.translateX(reloadPositionOffset.x);
+        this.mesh.translateY(reloadPositionOffset.y);
+        this.mesh.translateZ(reloadPositionOffset.z);
 
         if (this.isReloading) return;
 
@@ -181,9 +216,10 @@ export class SniperRifle extends Weapon {
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
         const targetPoint = raycaster.ray.at(200, new THREE.Vector3());
 
-        const muzzlePos = this.mesh.position.clone().add(
-            new THREE.Vector3(0.15, -0.15, -1.3).applyQuaternion(this.mesh.quaternion)
-        );
+        // Spawn from World Position relative to camera
+        const offset = new THREE.Vector3(0.15, -0.15, -1.0);
+        offset.applyQuaternion(camera.quaternion);
+        const muzzlePos = camera.position.clone().add(offset);
 
         const direction = targetPoint.sub(muzzlePos).normalize();
 
@@ -222,6 +258,6 @@ export class SniperRifle extends Weapon {
             this.mesh.remove(flashSprite);
             flashLight.dispose();
             spriteMaterial.dispose();
-        }, 60);
+        }, 20);
     }
 }

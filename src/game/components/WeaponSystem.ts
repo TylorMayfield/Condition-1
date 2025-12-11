@@ -225,8 +225,12 @@ export class WeaponSystem extends Weapon {
         const targetRay = raycaster.ray;
         let targetPoint = targetRay.at(100, new THREE.Vector3()); // Aim point
 
-        // 2. Spawn from Gun Muzzle
-        const muzzlePos = this.mesh.position.clone().add(new THREE.Vector3(0.2, -0.2, -0.8).applyQuaternion(this.mesh.quaternion));
+        // 2. Spawn from Gun Muzzle (World Space)
+        // Since the weapon mesh is in HUD space (0,0,0), we must calculate the world position 
+        // relative to the camera.
+        const offset = new THREE.Vector3(0.2, -0.2, -0.5); // Right, Down, Forward relative to camera
+        offset.applyQuaternion(camera.quaternion);
+        const muzzlePos = camera.position.clone().add(offset);
 
         // 3. Direction from Muzzle to Target
         const direction = targetPoint.sub(muzzlePos).normalize();
@@ -265,12 +269,12 @@ export class WeaponSystem extends Weapon {
         // Add slight random rotation to sprite for variety
         flashSprite.material.rotation = Math.random() * Math.PI * 2;
 
-        // Remove after 50ms
+        // Remove after 20ms (1 frame at 60fps is ~16ms, so close to 1 frame)
         setTimeout(() => {
             this.mesh.remove(flashLight);
             this.mesh.remove(flashSprite);
             flashLight.dispose();
             spriteMaterial.dispose();
-        }, 50);
+        }, 20);
     }
 }

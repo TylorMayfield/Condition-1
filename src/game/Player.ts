@@ -39,20 +39,38 @@ export class Player extends GameObject {
         this.addWeapon(new WeaponSystem(game)); // Assault Rifle
         this.addWeapon(new SniperRifle(game));  // Sniper Rifle
         this.switchWeapon(0);
+
+        // Hitbox Mesh (for Ballistics Detection)
+        // Cylinder representing standing player (Height 1.8m, Radius 0.4m)
+        const hitboxGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
+        hitboxGeo.translate(0, 0.4, 0); // Offset center to align with body (Sphere center at 0.5, Cylinder center needs to be 0.9)
+        const hitboxMat = new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            transparent: true, 
+            opacity: 0, // Invisible but hittable
+            depthWrite: false 
+        });
+        this.mesh = new THREE.Mesh(hitboxGeo, hitboxMat);
+        this.game.scene.add(this.mesh);
     }
 
     public update(dt: number) {
         if (this.health <= 0) {
             // Death State
             if (this.body) {
-                this.mesh?.position.copy(this.body.position as any);
+                // If we had a death mesh it would go here. 
+                // Currently just camera.
                 this.game.camera.position.copy(this.body.position as any);
                 this.game.camera.quaternion.copy(this.body.quaternion as any);
             }
             return;
         }
 
-        super.update(dt);
+        // Custom update to keep hitbox upright (ignore rolling sphere body rotation)
+        if (this.body && this.mesh) {
+            this.mesh.position.copy(this.body.position as any);
+            this.mesh.quaternion.set(0, 0, 0, 1); // Stay upright
+        }
 
         // Delegate to components
         this.controller.update(dt);

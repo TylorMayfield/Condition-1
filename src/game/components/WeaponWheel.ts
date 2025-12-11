@@ -21,13 +21,17 @@ export class WeaponWheel {
         this.container.style.width = '300px';
         this.container.style.height = '300px';
         this.container.style.borderRadius = '50%';
-        this.container.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-        this.container.style.backdropFilter = 'blur(5px)';
+        
+        // Match Scoreboard Style
+        this.container.style.background = 'radial-gradient(circle, rgba(20,30,20,0.8) 0%, rgba(0,0,0,0.9) 100%)';
+        this.container.style.backdropFilter = 'blur(10px)';
         this.container.style.display = 'none';
         this.container.style.zIndex = '1000';
-        // Glassmorphism border
-        this.container.style.border = '1px solid rgba(255, 255, 255, 0.1)';
-        this.container.style.boxShadow = '0 0 20px rgba(0,0,0,0.5)';
+        
+        // Green Glass Border
+        this.container.style.border = '2px solid rgba(0, 255, 100, 0.3)';
+        this.container.style.boxShadow = '0 0 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,255,100,0.1)';
+        this.container.style.fontFamily = "'Segoe UI', Roboto, sans-serif";
 
         document.body.appendChild(this.container);
     }
@@ -89,15 +93,18 @@ export class WeaponWheel {
             segment.style.width = '60px';
             segment.style.height = '60px';
             segment.style.borderRadius = '50%';
-            segment.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-            segment.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+            segment.style.backgroundColor = 'rgba(0, 50, 25, 0.4)'; // Dark Green Tint
+            segment.style.border = '1px solid rgba(0, 255, 100, 0.2)';
             segment.style.display = 'flex';
             segment.style.alignItems = 'center';
             segment.style.justifyContent = 'center';
-            segment.style.color = 'white';
+            segment.style.color = '#fff';
             segment.style.fontSize = '12px';
-            segment.style.fontWeight = 'bold';
+            segment.style.fontWeight = '700';
+            segment.style.letterSpacing = '1px';
+            segment.style.textShadow = '0 0 10px rgba(0,255,100,0.5)';
             segment.style.textAlign = 'center';
+            segment.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
             segment.innerText = i === 0 ? 'RIFLE' : (i === 1 ? 'SNIPER' : `WPN ${i+1}`);
             
             // Position
@@ -122,7 +129,8 @@ export class WeaponWheel {
         centerInd.style.width = '10px';
         centerInd.style.height = '10px';
         centerInd.style.borderRadius = '50%';
-        centerInd.style.backgroundColor = 'white';
+        centerInd.style.backgroundColor = '#4dffaa';
+        centerInd.style.boxShadow = '0 0 10px #4dffaa';
         this.container.appendChild(centerInd);
     }
 
@@ -165,11 +173,17 @@ export class WeaponWheel {
     private updateSelectionVisuals() {
         for (let i = 0; i < this.segments.length; i++) {
             if (i === this.selectedIndex) {
-                this.segments[i].style.backgroundColor = 'rgba(255, 200, 0, 0.5)';
-                this.segments[i].style.transform = 'scale(1.1)';
+                this.segments[i].style.backgroundColor = 'rgba(0, 255, 100, 0.3)'; // Highlight Green
+                this.segments[i].style.borderColor = 'rgba(0, 255, 100, 0.8)';
+                this.segments[i].style.transform = 'scale(1.2)';
+                this.segments[i].style.zIndex = '2';
+                this.segments[i].style.boxShadow = '0 0 20px rgba(0, 255, 100, 0.4)';
             } else {
-                this.segments[i].style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                this.segments[i].style.backgroundColor = 'rgba(0, 50, 25, 0.4)';
+                this.segments[i].style.borderColor = 'rgba(0, 255, 100, 0.2)';
                 this.segments[i].style.transform = 'scale(1.0)';
+                this.segments[i].style.zIndex = '1';
+                this.segments[i].style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
             }
         }
     }

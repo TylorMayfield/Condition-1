@@ -17,7 +17,7 @@ export interface RagdollParts {
 }
 
 export class RagdollBuilder {
-    public static createRagdoll(game: Game, meshes: RagdollParts['meshes'], initialVelocity: CANNON.Vec3): { bodies: CANNON.Body[], constraints: CANNON.Constraint[] } {
+    public static createRagdoll(_game: Game, meshes: RagdollParts['meshes'], initialVelocity: CANNON.Vec3): { bodies: CANNON.Body[], constraints: CANNON.Constraint[] } {
         const bodies: CANNON.Body[] = [];
         const constraints: CANNON.Constraint[] = [];
 
@@ -52,19 +52,28 @@ export class RagdollBuilder {
         };
 
         // Dimensions (Half-extents for Cannon)
-        // Enemy.ts: BoxGeometry(0.5, 0.6, 0.35) -> 0.25, 0.3, 0.175
-        const torsoSize = new CANNON.Vec3(0.25, 0.3, 0.175);
-        const headSize = new CANNON.Vec3(0.15, 0.15, 0.15); // Box(0.3...)
-        const armSize = new CANNON.Vec3(0.075, 0.25, 0.075); // Box(0.15, 0.5, 0.15)
-        const legSize = new CANNON.Vec3(0.075, 0.35, 0.1); // Box(0.15, 0.7, 0.2)
+        // Dimensions (Half-extents for Cannon)
+        // Slightly reduced to prevent initial interpenetration with ground
+        const torsoSize = new CANNON.Vec3(0.24, 0.28, 0.16);
+        const headSize = new CANNON.Vec3(0.14, 0.14, 0.14); 
+        const armSize = new CANNON.Vec3(0.07, 0.24, 0.07);
+        const legSize = new CANNON.Vec3(0.07, 0.34, 0.09); 
         
         // 1. Create Bodies
-        const torsoBody = createBody(meshes.body, torsoSize, 20);
-        const headBody = createBody(meshes.head, headSize, 5);
-        const leftArmBody = createBody(meshes.leftArm, armSize, 5);
-        const rightArmBody = createBody(meshes.rightArm, armSize, 5);
-        const leftLegBody = createBody(meshes.leftLeg, legSize, 10);
-        const rightLegBody = createBody(meshes.rightLeg, legSize, 10);
+        const createBodyWithCCD = (mesh: THREE.Mesh, size: CANNON.Vec3, mass: number): CANNON.Body => {
+            const body = createBody(mesh, size, mass);
+            // Enable CCD to prevent tunneling through thin map geometry
+            (body as any).ccdSpeedThreshold = 0.1;
+            (body as any).ccdIterations = 2;
+            return body;
+        };
+
+        const torsoBody = createBodyWithCCD(meshes.body, torsoSize, 20);
+        const headBody = createBodyWithCCD(meshes.head, headSize, 5);
+        const leftArmBody = createBodyWithCCD(meshes.leftArm, armSize, 5);
+        const rightArmBody = createBodyWithCCD(meshes.rightArm, armSize, 5);
+        const leftLegBody = createBodyWithCCD(meshes.leftLeg, legSize, 10);
+        const rightLegBody = createBodyWithCCD(meshes.rightLeg, legSize, 10);
 
         bodies.push(torsoBody, headBody, leftArmBody, rightArmBody, leftLegBody, rightLegBody);
 

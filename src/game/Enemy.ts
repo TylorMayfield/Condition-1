@@ -117,10 +117,17 @@ export class Enemy extends GameObject {
         this.weapon.mesh.position.set(0, -0.25, 0.15); // Hold in hand (adjusted for new arm size)
         this.rightArm.add(this.weapon.mesh);
 
-        // Color based on personality
-        if (p === AIPersonality.Rusher) mat.color.setHex(0xff0000);
-        if (p === AIPersonality.Sniper) mat.color.setHex(0x00ff00);
-        if (p === AIPersonality.Tactical) mat.color.setHex(0x0000ff);
+        // Color based on Team (Priority) or Personality
+        if (this.team === 'Player' || this.team === 'TaskForce') {
+            mat.color.setHex(0x0066cc); // Blue for Friendlies
+        } else if (this.team === 'OpFor') {
+            mat.color.setHex(0xcc3300); // Red for Enemies
+        } else {
+            // Fallback to personality if not in TDM/Team mode
+            if (p === AIPersonality.Rusher) mat.color.setHex(0xff0000);
+            if (p === AIPersonality.Sniper) mat.color.setHex(0x00ff00);
+            if (p === AIPersonality.Tactical) mat.color.setHex(0x0000ff);
+        }
 
         // Link physics body to this instance for hit detection
         (this.body as any).gameObject = this;
@@ -246,9 +253,10 @@ export class Enemy extends GameObject {
 
             // Cleanup after time
             this.deadTime += dt;
-            if (this.deadTime > 10) { // Disappear after 10s
-                this.dispose();
-            }
+            // if (this.deadTime > 10) { // Disappear after 10s
+            //     this.dispose();
+            // }
+            // Keep bodies for round duration (or until max limit handled by game)
             return;
         }
 

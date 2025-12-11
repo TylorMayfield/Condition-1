@@ -23,7 +23,47 @@ export class TeamDeathmatchGameMode extends GameMode {
     public roundLimit: number = 5; // First to 5 wins
     public botsPerTeam: number = 5; // 5 vs 5 target
 
-    // ...
+    // Round state
+    private roundActive: boolean = false;
+    private roundNumber: number = 0;
+    private roundEndTimer: number = 0;
+    private roundEndDelay: number = 3; // Seconds before next round starts
+    private isGameOver: boolean = false;
+    
+    // Track entities for this round (no respawning)
+    private taskForceAlive: Set<GameObject> = new Set();
+    private opForAlive: Set<GameObject> = new Set();
+    
+    constructor(game: Game) {
+        super(game);
+    }
+
+    public init(): void {
+        console.log("Initializing Round-Based Team Deathmatch");
+        this.roundWins['TaskForce'] = 0;
+        this.roundWins['OpFor'] = 0;
+        this.roundNumber = 0;
+        this.isGameOver = false;
+        
+        // Ensure clean state immediately to remove any HMR leftovers
+        this.cleanupRound();
+    }
+
+    public update(dt: number): void {
+        if (this.isGameOver) return;
+        
+        // If round is not active, we're in between rounds
+        if (!this.roundActive) {
+            this.roundEndTimer += dt;
+            if (this.roundEndTimer >= this.roundEndDelay) {
+                this.startNewRound();
+            }
+            return;
+        }
+        
+        // Check for round end condition
+        this.checkRoundEnd();
+    }
 
     private startNewRound(): void {
         this.cleanupRound(); // Ensure clean slate (removes any existing bots)
@@ -153,10 +193,18 @@ export class TeamDeathmatchGameMode extends GameMode {
 
     private cleanupRound(): void {
         // Remove all enemy objects
-        const toRemove = this.game.getGameObjects().filter(go => go instanceof Enemy);
+        // Use constructor name check to catch HMR ghosts where instanceof fails
+        const toRemove = this.game.getGameObjects().filter(go => 
+            go instanceof Enemy || go.constructor.name === 'Enemy'
+        );
+        
         toRemove.forEach(go => {
-            if (go instanceof Enemy) {
-                go.dispose();
+            // Explicitly try calling dispose if it exists
+            if ('dispose' in go && typeof (go as any).dispose === 'function') {
+                (go as any).dispose(); 
+            } else {
+                // Fallback force remove
+                this.game.removeGameObject(go);
             }
         });
         
