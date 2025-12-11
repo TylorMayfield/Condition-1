@@ -520,6 +520,16 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         const myTeam = this.game.player?.team || 'Player';
 
+        // 0. If Spectator Only Mode, show everyone (No team restriction)
+        if (this.isSpectatorOnly) {
+            // Filter alive only
+            return targets.filter(t => {
+                if (t instanceof Enemy && t.health <= 0) return false;
+                if ((t as any).isDead) return false;
+                return true;
+            });
+        }
+
         // 1. Try to find living teammates
         const teammates = targets.filter(t => {
             if (t === this.game.player) return false;

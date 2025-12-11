@@ -42,10 +42,10 @@ export class Enemy extends GameObject {
         return this.isRagdoll || this.health <= 0;
     }
 
-    constructor(game: Game, position: THREE.Vector3, team: string = 'Enemy') {
+    constructor(game: Game, position: THREE.Vector3, team: string = 'Enemy', name?: string) {
         super(game);
         this.team = team;
-        this.name = Enemy.BOT_NAMES[Math.floor(Math.random() * Enemy.BOT_NAMES.length)] + " " + Math.floor(Math.random() * 100);
+        this.name = name || (Enemy.BOT_NAMES[Math.floor(Math.random() * Enemy.BOT_NAMES.length)] + " " + Math.floor(Math.random() * 100));
 
         // Visuals (Compound Body)
         this.mesh = new THREE.Group();
