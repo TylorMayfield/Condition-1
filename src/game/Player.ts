@@ -222,6 +222,9 @@ export class Player extends GameObject {
             weapon.reserveAmmo = 20; // Or max reserve
             weapon.isReloading = false;
         }
+
+        // Replenish Grenades
+        this.grenadeCount = 3;
         
         // Re-enable controls if disabled
         this.game.input.lockCursor();
