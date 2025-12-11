@@ -8,15 +8,17 @@ export abstract class GameMode {
         this.game = game;
     }
 
+    public aiEnabled: boolean = true;
+
     public abstract init(): void;
     public abstract update(dt: number): void;
-    
+
     // Optional hooks
-    public onEntityDeath(victim: GameObject, killer?: GameObject): void {}
-    public onPlayerExtract(): void {}
-    
+    public onEntityDeath(victim: GameObject, killer?: GameObject): void { }
+    public onPlayerExtract(): void { }
+
     // Entity management hook (so Spawners can register enemies to the mode)
-    public registerEntity(entity: GameObject): void {}
+    public registerEntity(entity: GameObject): void { }
 
     public abstract getScoreboardData(): ScoreData[];
 }

@@ -19,7 +19,7 @@ export class EnemyWeapon extends Weapon {
     private createWeaponModel() {
         // Simple Enemy Gun (Grey Box)
         const barrelGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
-        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
         const barrel = new THREE.Mesh(barrelGeo, barrelMat);
         barrel.position.set(0, 0, 0.3); // Forward relative to hand
         this.mesh.add(barrel);
@@ -53,7 +53,69 @@ export class EnemyWeapon extends Weapon {
             direction.z += (Math.random() - 0.5) * spreadAmount;
             direction.normalize();
 
+            // Randomize damage for this shot (5 to 15)
+            const originalDamage = this.damage;
+            this.damage = Math.floor(5 + Math.random() * 11);
+
             this.shoot(worldMuzzle, direction);
+            this.createMuzzleFlash();
+
+            this.damage = originalDamage; // Restore base damage (though it doesn't matter much if we randomize every time)
         }
+    }
+
+    // State for Muzzle Flash
+    private currentMuzzleFlash: THREE.Object3D[] = [];
+    private muzzleFlashTimeout: any = null;
+
+    private createMuzzleFlash() {
+        // remove existing flash if present to avoid stacking
+        if (this.currentMuzzleFlash.length > 0) {
+            this.currentMuzzleFlash.forEach(obj => {
+                this.mesh.remove(obj);
+            });
+            this.currentMuzzleFlash = [];
+        }
+        if (this.muzzleFlashTimeout) {
+            clearTimeout(this.muzzleFlashTimeout);
+            this.muzzleFlashTimeout = null;
+        }
+
+        // Create flash light
+        const flashLight = new THREE.PointLight(0xffaa00, 2, 5); // Slightly smaller for 3rd person
+        flashLight.position.set(0, 0, 0.8); // At barrel tip (barrel is up to 0.8z roughly from center?)
+        // Adjusted pos based on box geometry (0.5 length, positioned 0.3 z) -> tip is at 0.3 + 0.25 = 0.55 z relative to parent?
+        // Let's guess 0.6
+        flashLight.position.set(0, 0, 0.6);
+        this.mesh.add(flashLight);
+        this.currentMuzzleFlash.push(flashLight);
+
+        // Create flash sprite
+        const spriteMaterial = new THREE.SpriteMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending
+        });
+        const flashSprite = new THREE.Sprite(spriteMaterial);
+        flashSprite.scale.set(0.5, 0.5, 0.5); // Visible scale
+        flashSprite.position.set(0, 0, 0.6);
+        this.mesh.add(flashSprite);
+        this.currentMuzzleFlash.push(flashSprite);
+
+        // Add slight random rotation to sprite for variety
+        flashSprite.material.rotation = Math.random() * Math.PI * 2;
+
+        // Remove after 20ms
+        this.muzzleFlashTimeout = setTimeout(() => {
+            if (this.currentMuzzleFlash.length > 0) {
+                this.mesh.remove(flashLight);
+                this.mesh.remove(flashSprite);
+                flashLight.dispose();
+                spriteMaterial.dispose();
+                this.currentMuzzleFlash = [];
+            }
+            this.muzzleFlashTimeout = null;
+        }, 30); // Slightly longer for TPS visibility
     }
 }

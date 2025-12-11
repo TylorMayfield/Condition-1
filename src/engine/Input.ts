@@ -3,6 +3,7 @@ import { SettingsManager } from '../game/SettingsManager';
 export class Input {
     public keys: Map<string, boolean> = new Map();
     private mouseButtons: Map<number, boolean> = new Map();
+    private previousMouseButtons: Map<number, boolean> = new Map();
     public mouseDelta: { x: number, y: number } = { x: 0, y: 0 };
     public isPointerLocked: boolean = false;
     private previousKeys: Map<string, boolean> = new Map();
@@ -68,6 +69,10 @@ export class Input {
         return this.mouseButtons.get(button) || false;
     }
 
+    public getMouseButtonDown(button: number): boolean {
+        return (this.mouseButtons.get(button) || false) && !(this.previousMouseButtons.get(button) || false);
+    }
+
     public getAction(action: string): boolean {
         const code = this.settingsManager.getControl(action);
         return this.getKey(code);
@@ -85,6 +90,7 @@ export class Input {
     public update() {
         // Update previous keys
         this.previousKeys = new Map(this.keys);
+        this.previousMouseButtons = new Map(this.mouseButtons);
     }
 
     public flushMouseDelta() {

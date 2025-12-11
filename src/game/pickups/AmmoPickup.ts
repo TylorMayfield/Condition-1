@@ -131,7 +131,7 @@ export class AmmoPickup extends GameObject {
         const pickupPos = this.mesh.position;
 
         const dist = playerPos.distanceTo(pickupPos);
-        if (dist < 1.0) { // 1 meter pickup range
+        if (dist < 2.5) { // Increased pickup range
             this.collect();
         }
     }

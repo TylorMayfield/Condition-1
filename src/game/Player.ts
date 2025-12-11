@@ -17,6 +17,9 @@ export class Player extends GameObject {
     private currentWeaponIndex: number = 0;
     public grenadeCount: number = 3;
 
+    // Spectator State
+    public isSpectating: boolean = false;
+
     constructor(game: Game) {
         super(game);
         this.team = 'Player';
@@ -37,8 +40,8 @@ export class Player extends GameObject {
         this.controller = new PlayerController(game, this);
 
         // Init Weapons
-        this.addWeapon(new WeaponSystem(game)); // Assault Rifle
-        this.addWeapon(new SniperRifle(game));  // Sniper Rifle
+        this.addWeapon(new WeaponSystem(game, this)); // Assault Rifle
+        this.addWeapon(new SniperRifle(game, this));  // Sniper Rifle
         this.switchWeapon(0);
 
         // Hitbox Mesh (for Ballistics Detection)
@@ -57,6 +60,11 @@ export class Player extends GameObject {
     }
 
     public update(dt: number) {
+        // Toggle HUD visibility based on spectator state
+        this.game.sceneHUD.visible = !this.isSpectating;
+
+        if (this.isSpectating) return;
+
         if (this.health <= 0) {
             // Death State
             if (this.body) {

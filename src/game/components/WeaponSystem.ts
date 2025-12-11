@@ -16,8 +16,8 @@ export class WeaponSystem extends Weapon {
     private adsFOV: number = 50; // Zoomed FOV
     private normalFOV: number = 75; // Normal FOV
 
-    constructor(game: Game) {
-        super(game, null); // Owner set later or ignored for Player singleton usage
+    constructor(game: Game, owner: any) {
+        super(game, owner);
         this.createWeaponModel();
         // Add to HUD scene instead
         this.game.sceneHUD.add(this.mesh);
@@ -27,7 +27,7 @@ export class WeaponSystem extends Weapon {
         this.damage = 25;
         this.muzzleVelocity = 150;
     }
-    
+
 
     private createWeaponModel() {
         // Realistic Rifle Model (Assault Rifle Style)
@@ -91,7 +91,7 @@ export class WeaponSystem extends Weapon {
         hudCamera.quaternion.copy(camera.quaternion);
 
         // Handle ADS Input
-        this.isAiming = this.game.input.getMouseButton(2); 
+        this.isAiming = this.game.input.getMouseButton(2);
 
         // Smooth ADS transition
         const adsSpeed = 10;
@@ -160,7 +160,7 @@ export class WeaponSystem extends Weapon {
         }
 
         // Position Weapon relative to HUD Camera (at 0,0,0)
-        this.mesh.position.set(0, 0, 0); 
+        this.mesh.position.set(0, 0, 0);
         this.mesh.quaternion.copy(hudCamera.quaternion);
 
         // Interpolate between hip and ADS position
@@ -248,11 +248,29 @@ export class WeaponSystem extends Weapon {
         this.shoot(muzzlePos, direction);
     }
 
+    // State for Muzzle Flash
+    private currentMuzzleFlash: THREE.Object3D[] = [];
+    private muzzleFlashTimeout: any = null;
+
     private createMuzzleFlash() {
+        // remove existing flash if present to avoid stacking
+        if (this.currentMuzzleFlash.length > 0) {
+            this.currentMuzzleFlash.forEach(obj => {
+                this.mesh.remove(obj);
+                // Traverse to dispose materials/geometries if needed, though they are shared usually or simple
+            });
+            this.currentMuzzleFlash = [];
+        }
+        if (this.muzzleFlashTimeout) {
+            clearTimeout(this.muzzleFlashTimeout);
+            this.muzzleFlashTimeout = null;
+        }
+
         // Create flash light
         const flashLight = new THREE.PointLight(0xffaa00, 3, 10);
         flashLight.position.set(0.15, -0.15, -1.0); // At barrel tip
         this.mesh.add(flashLight);
+        this.currentMuzzleFlash.push(flashLight);
 
         // Create flash sprite
         const spriteMaterial = new THREE.SpriteMaterial({
@@ -265,16 +283,21 @@ export class WeaponSystem extends Weapon {
         flashSprite.scale.set(0.3, 0.3, 0.3);
         flashSprite.position.set(0.15, -0.15, -1.0);
         this.mesh.add(flashSprite);
+        this.currentMuzzleFlash.push(flashSprite);
 
         // Add slight random rotation to sprite for variety
         flashSprite.material.rotation = Math.random() * Math.PI * 2;
 
         // Remove after 20ms (1 frame at 60fps is ~16ms, so close to 1 frame)
-        setTimeout(() => {
-            this.mesh.remove(flashLight);
-            this.mesh.remove(flashSprite);
-            flashLight.dispose();
-            spriteMaterial.dispose();
+        this.muzzleFlashTimeout = setTimeout(() => {
+            if (this.currentMuzzleFlash.length > 0) {
+                this.mesh.remove(flashLight);
+                this.mesh.remove(flashSprite);
+                flashLight.dispose();
+                spriteMaterial.dispose();
+                this.currentMuzzleFlash = [];
+            }
+            this.muzzleFlashTimeout = null;
         }, 20);
     }
 }

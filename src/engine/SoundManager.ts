@@ -20,6 +20,11 @@ export class SoundManager {
     private poolIndex: number = 0;
     private readonly poolSize: number = 32;
 
+    // External Audio
+    private audioLoader: THREE.AudioLoader | null = null;
+    private globalAudio: THREE.Audio | null = null;
+    private audioCache: Map<string, AudioBuffer> = new Map();
+
     constructor() {
         // Audio context will be created on first user interaction
     }
@@ -35,6 +40,10 @@ export class SoundManager {
             this.listener = new THREE.AudioListener();
             this.camera = camera;
             camera.add(this.listener);
+
+            // Audio Loader
+            this.audioLoader = new THREE.AudioLoader();
+            this.globalAudio = new THREE.Audio(this.listener);
 
             // Pre-create audio pool
             for (let i = 0; i < this.poolSize; i++) {
@@ -63,7 +72,7 @@ export class SoundManager {
     }
 
     // === AI Hearing System (existing functionality) ===
-    
+
     public registerListener(listener: EnemyAI) {
         this.listeners.push(listener);
     }
@@ -96,7 +105,7 @@ export class SoundManager {
 
         const buffer = this.generateGunshotBuffer();
         this.playPositionalSound(position, buffer, volume * 0.7);
-        
+
         // Also emit for AI hearing
         this.emitSound(position, 50);
     }
@@ -109,7 +118,7 @@ export class SoundManager {
 
         const buffer = this.generateFootstepBuffer();
         this.playPositionalSound(position, buffer, volume * this.masterVolume);
-        
+
         // Emit for AI hearing (shorter range)
         this.emitSound(position, 15);
     }
@@ -132,7 +141,7 @@ export class SoundManager {
 
         const buffer = this.generateDeathBuffer();
         this.playPositionalSound(position, buffer, volume * this.masterVolume);
-        
+
         // Emit for AI hearing
         this.emitSound(position, 30);
     }
@@ -145,6 +154,47 @@ export class SoundManager {
 
         const buffer = this.generateWhizBuffer();
         this.playPositionalSound(position, buffer, volume * this.masterVolume);
+    }
+
+    /**
+     * Play a global (non-positional) sound from a file
+     */
+    public playGlobalSound(path: string, volume: number = 1.0): void {
+        if (!this.initialized || !this.globalAudio || !this.audioLoader) return;
+
+        // Auto-resume if suspended (browser policy)
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+
+        // Check cache
+        if (this.audioCache.has(path)) {
+            const buffer = this.audioCache.get(path)!;
+            this.playSoundBuffer(buffer, volume);
+            return;
+        }
+
+        // Load file
+        this.audioLoader.load(path, (buffer) => {
+            this.audioCache.set(path, buffer);
+            this.playSoundBuffer(buffer, volume);
+        }, undefined, (err) => {
+            console.warn(`[SoundManager] Failed to load sound: ${path}`, err);
+        });
+    }
+
+    private playSoundBuffer(buffer: AudioBuffer, volume: number) {
+        if (!this.globalAudio) return;
+
+        // Stop if playing to avoid overlapping same channel (optional, but good for announcer)
+        if (this.globalAudio.isPlaying) {
+            this.globalAudio.stop();
+        }
+
+        this.globalAudio.setBuffer(buffer);
+        this.globalAudio.setVolume(volume * this.masterVolume); // Use master volume
+        this.globalAudio.setLoop(false);
+        this.globalAudio.play();
     }
 
     // === Sound Generation (Procedural) ===
@@ -165,7 +215,7 @@ export class SoundManager {
             const thump = Math.sin(t * 200) * Math.exp(-t * 30);
             // High frequency crack
             const crack = (Math.random() * 2 - 1) * Math.exp(-t * 80);
-            
+
             data[i] = (attack * crack * 0.5 + thump * 0.5) * 0.8;
         }
 
@@ -186,7 +236,7 @@ export class SoundManager {
             const thud = Math.sin(t * 80 * Math.PI) * Math.exp(-t * 25);
             // Subtle crunch
             const crunch = (Math.random() * 2 - 1) * Math.exp(-t * 40) * 0.2;
-            
+
             data[i] = (thud * 0.7 + crunch) * 0.5;
         }
 
@@ -207,7 +257,7 @@ export class SoundManager {
             const hit = Math.sin(t * 300) * Math.exp(-t * 60);
             // Debris noise
             const debris = (Math.random() * 2 - 1) * Math.exp(-t * 50) * 0.3;
-            
+
             data[i] = (hit * 0.6 + debris) * 0.7;
         }
 
@@ -229,7 +279,7 @@ export class SoundManager {
             // Body fall thud at end
             const fallTime = t - 0.2;
             const fall = fallTime > 0 ? Math.sin(fallTime * 50) * Math.exp(-fallTime * 20) * 0.5 : 0;
-            
+
             data[i] = (grunt * 0.6 + fall) * 0.6;
         }
 
@@ -249,7 +299,7 @@ export class SoundManager {
             // Doppler-like frequency sweep
             const freq = 2000 + (1 - t / duration) * 1500;
             const whiz = Math.sin(t * freq * Math.PI * 2) * Math.exp(-t * 20);
-            
+
             data[i] = whiz * 0.4;
         }
 
@@ -279,7 +329,7 @@ export class SoundManager {
         // Create a temporary object at the position
         const tempObj = new THREE.Object3D();
         tempObj.position.copy(position);
-        
+
         // Add audio to scene at position
         if (this.camera.parent) {
             this.camera.parent.add(tempObj);

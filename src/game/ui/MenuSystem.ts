@@ -236,15 +236,21 @@ export class MenuSystem {
             // Determine Game Mode
             const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
             const modeValue = modeSelect ? modeSelect.value : 'tdm';
-            
+
             console.log(`Selected Game Mode: ${modeValue}`);
-            
+
             // Switch Game Mode
             if (modeValue === 'ffa') {
                 this.game.gameMode = new FreeForAllGameMode(this.game);
             } else {
                 // Default to TDM
                 this.game.gameMode = new TeamDeathmatchGameMode(this.game);
+
+                // Check Spectator Option
+                const spectateCheckbox = document.getElementById('checkbox-spectator') as HTMLInputElement;
+                if (spectateCheckbox && spectateCheckbox.checked) {
+                    (this.game.gameMode as TeamDeathmatchGameMode).isSpectatorOnly = true;
+                }
             }
 
             // Show loading
@@ -252,7 +258,7 @@ export class MenuSystem {
 
             const lg = (this.game as any).levelGenerator;
             await lg.loadMap(mapName);
-            
+
             // Initialize the new game mode (reset rounds, spawn logic, etc)
             this.game.gameMode.init();
 

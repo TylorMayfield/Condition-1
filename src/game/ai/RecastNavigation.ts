@@ -464,6 +464,23 @@ export class RecastNavigation {
     }
 
     /**
+     * Find nearest point on NavMesh
+     */
+    public closestPointTo(position: THREE.Vector3): THREE.Vector3 | null {
+        if (!this.navMeshQuery) return null;
+
+        const result = this.navMeshQuery.findNearestPoly(
+            { x: position.x, y: position.y, z: position.z },
+            { halfExtents: { x: 5, y: 10, z: 5 } } // generous search
+        );
+
+        if (result.success && result.nearestPoint) {
+            return new THREE.Vector3(result.nearestPoint.x, result.nearestPoint.y, result.nearestPoint.z);
+        }
+        return null;
+    }
+
+    /**
      * Get the navmesh for direct access
      */
     public getNavMesh(): NavMesh | null {

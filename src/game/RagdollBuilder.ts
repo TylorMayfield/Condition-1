@@ -44,7 +44,7 @@ export class RagdollBuilder {
                 collisionFilterMask: -1 // Collide with EVERYTHING (World, other ragdolls, default objects)
             });
             body.addShape(shape);
-            
+
             // Apply initial velocity (e.g. from the killing shot)
             body.velocity.copy(initialVelocity);
 
@@ -55,16 +55,21 @@ export class RagdollBuilder {
         // Dimensions (Half-extents for Cannon)
         // Slightly reduced to prevent initial interpenetration with ground
         const torsoSize = new CANNON.Vec3(0.24, 0.28, 0.16);
-        const headSize = new CANNON.Vec3(0.14, 0.14, 0.14); 
+        const headSize = new CANNON.Vec3(0.14, 0.14, 0.14);
         const armSize = new CANNON.Vec3(0.07, 0.24, 0.07);
-        const legSize = new CANNON.Vec3(0.07, 0.34, 0.09); 
-        
+        const legSize = new CANNON.Vec3(0.07, 0.34, 0.09);
+
         // 1. Create Bodies
         const createBodyWithCCD = (mesh: THREE.Mesh, size: CANNON.Vec3, mass: number): CANNON.Body => {
             const body = createBody(mesh, size, mass);
             // Enable CCD to prevent tunneling through thin map geometry
             (body as any).ccdSpeedThreshold = 0.1;
             (body as any).ccdIterations = 2;
+
+            // Ensure body effectively wakes up
+            body.allowSleep = false;
+            body.wakeUp();
+
             return body;
         };
 
@@ -97,7 +102,7 @@ export class RagdollBuilder {
         // Torso pivot: Top Left (-0.25, 0.25, 0)
         const leftShoulder = new CANNON.ConeTwistConstraint(leftArmBody, torsoBody, {
             pivotA: new CANNON.Vec3(0, 0.25, 0),
-            pivotB: new CANNON.Vec3(-0.35, 0.25, 0), 
+            pivotB: new CANNON.Vec3(-0.35, 0.25, 0),
             axisA: new CANNON.Vec3(0, 1, 0),
             axisB: new CANNON.Vec3(0, 1, 0),
             angle: Math.PI / 2,

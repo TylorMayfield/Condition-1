@@ -4,8 +4,9 @@ import { Game } from '../engine/Game';
 import { GameObject } from '../engine/GameObject';
 import { EnemyAI, AIPersonality } from './components/EnemyAI';
 import { EnemyWeapon } from './components/EnemyWeapon';
-import { RagdollBuilder } from './RagdollBuilder';
+
 import { AmmoPickup } from './pickups/AmmoPickup';
+import { RagdollEntity } from './entities/RagdollEntity';
 
 export class Enemy extends GameObject {
     public health: number = 100;
@@ -32,9 +33,6 @@ export class Enemy extends GameObject {
 
     // Ragdoll State (also indicates death - ragdolled enemies are dead)
     public isRagdoll: boolean = false;
-    private ragdollBodies: CANNON.Body[] = [];
-    private ragdollConstraints: CANNON.Constraint[] = [];
-    private deadTime: number = 0;
 
     /** Returns true if this enemy is dead (ragdolled) */
     public get isDead(): boolean {
@@ -223,71 +221,53 @@ export class Enemy extends GameObject {
         if (this.isRagdoll) return;
         this.isRagdoll = true;
 
-        console.log("Activating Ragdoll for Enemy");
+        console.log("Activating RagdollEntity for Enemy");
 
         // 1. Remove Gameplay Body
         if (this.body) {
             this.game.world.removeBody(this.body);
-            this.body = null; // Clear reference
+            this.body = null;
         }
 
-        // 2. Prepare Meshes for World Space
-        // We need to detach them from the group so they can move independently
-        // transform control: attach to scene, maintain world transform
-        const parts: THREE.Object3D[] = [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg];
-        parts.forEach(part => {
-            // Offset slightly upward BEFORE attaching to scene to ensure physics start clear of ground
-            // (THREE.Scene.attach preserves world transform, so we modify transform first)
-            // Actually, attach PRESERVES world transform, so moving it while child of Group moves it relative to Group.
-            // Group is at world pos.
-            part.position.y += 0.2;
-            part.updateMatrixWorld(); // Update world matrix with new local pos
-            this.game.scene.attach(part);
-        });
-
-        // Remove the container mesh (Group) as it is now empty/useless
-        if (this.mesh) this.game.scene.remove(this.mesh);
-
-        // 3. Create Ragdoll Physics
-        // Initial velocity from the kill shot + current movement
-        const initVel = new CANNON.Vec3(0, 0, 0);
-        if (forceVec) {
-            // CLAMP FORCE: Too much force causes tunneling through map
-            const clampedForce = forceVec.clone().clampLength(0, 10); // Max 10 m/s impulse
-            initVel.copy(clampedForce as any);
-        }
-
-        const rd = RagdollBuilder.createRagdoll(this.game, {
+        // 2. Prepare Meshes
+        // Detach from group, attach to scene so they persist
+        const parts = {
             head: this.head,
             body: this.bodyMesh,
             leftArm: this.leftArm,
             rightArm: this.rightArm,
             leftLeg: this.leftLeg,
             rightLeg: this.rightLeg
-        }, initVel);
+        };
 
-        this.ragdollBodies = rd.bodies;
-        this.ragdollConstraints = rd.constraints;
+        // Attach to scene to detach from this.mesh group
+        Object.values(parts).forEach(part => {
+            // Offset up slightly to avoid floor clip on spawn
+            part.position.y += 0.2;
+            part.updateMatrixWorld();
+            this.game.scene.attach(part);
+        });
 
-        // Add to world
-        this.ragdollBodies.forEach(b => this.game.world.addBody(b));
-        this.ragdollConstraints.forEach(c => this.game.world.addConstraint(c));
-
-        // Spawn ammo pickup at death location
-        const deathPos = new THREE.Vector3();
-        if (this.ragdollBodies[0]) {
-            deathPos.set(
-                this.ragdollBodies[0].position.x,
-                this.ragdollBodies[0].position.y,
-                this.ragdollBodies[0].position.z
-            );
-        } else if (this.mesh) {
-            deathPos.copy(this.mesh.position);
+        // 3. Calculate Velocity
+        const initVel = new CANNON.Vec3(0, 0, 0);
+        if (forceVec) {
+            const clampedForce = forceVec.clone().clampLength(0, 10);
+            initVel.copy(clampedForce as any);
         }
+
+        // 4. Create Ragdoll Entity
+        new RagdollEntity(this.game, parts, initVel);
+
+        // 5. Spawn Ammo
+        const deathPos = this.mesh ? this.mesh.position.clone() : new THREE.Vector3();
         new AmmoPickup(this.game, deathPos, 30);
 
-        // Disable AI
-        // this.ai.dispose(); // Or just stop updating
+        // 6. Dispose this Enemy
+        // We need to prevent dispose() from destroying the meshes we just handed off
+        // By detaching them from this.mesh, they are no longer children.
+        // We just need to make sure dispose() doesn't explicitly remove 'this.head', etc.
+        // I will update dispose() next.
+        this.dispose();
     }
 
     public dispose() {
@@ -295,15 +275,13 @@ export class Enemy extends GameObject {
             this.game.scene.remove(this.mesh);
         }
 
-        // Clean up loose parts if ragdolled
-        if (this.isRagdoll) {
+        // If ragdolled, meshes are owned by RagdollEntity.
+        // If NOT ragdolled (e.g. round reset), we should clean up geometry?
+        // For simplicity, let's assume if we are disposing alive enemy (round reset), we should clean up geometry.
+        if (!this.isRagdoll) {
             [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg].forEach(p => {
-                this.game.scene.remove(p);
-                if (p.geometry) p.geometry.dispose();
+                if (p && p.geometry) p.geometry.dispose();
             });
-
-            this.ragdollBodies.forEach(b => this.game.world.removeBody(b));
-            this.ragdollConstraints.forEach(c => this.game.world.removeConstraint(c));
         }
 
         if (this.body) {
@@ -314,34 +292,7 @@ export class Enemy extends GameObject {
     }
 
     public update(dt: number) {
-        if (this.isRagdoll) {
-            // Sync meshes to bodies
-            const map = [
-                { mesh: this.bodyMesh, body: this.ragdollBodies[0] },
-                { mesh: this.head, body: this.ragdollBodies[1] },
-                { mesh: this.leftArm, body: this.ragdollBodies[2] },
-                { mesh: this.rightArm, body: this.ragdollBodies[3] },
-                { mesh: this.leftLeg, body: this.ragdollBodies[4] },
-                { mesh: this.rightLeg, body: this.ragdollBodies[5] }
-            ];
-
-            map.forEach(item => {
-                if (item.body) {
-                    item.mesh.position.copy(item.body.position as any);
-                    item.mesh.quaternion.copy(item.body.quaternion as any);
-                }
-            });
-
-            // Cleanup after time
-            this.deadTime += dt;
-            // if (this.deadTime > 10) { // Disappear after 10s
-            //     this.dispose();
-            // }
-            // Keep bodies for round duration (or until max limit handled by game)
-            return;
-        }
-
-        // super.update(dt); // Don't use default sync, we want manual control over rotation
+        if (this.isRagdoll) return; // Should be disposed, but safety check
 
         // Sync graphics with physics (Position Only)
         if (this.body && this.mesh) {
@@ -357,7 +308,16 @@ export class Enemy extends GameObject {
             this.mesh.rotation.x = 0;
             this.mesh.up.set(0, 1, 0);
         }
-        this.ai.update(dt);
+
+        // Only update AI if GameMode allows it
+        if (!this.game.gameMode || this.game.gameMode.aiEnabled) {
+            this.ai.update(dt);
+        } else {
+            // Even if AI disabled, we might want to ensure they aren't stuck in a moving animation?
+            // For now, just freezing logic is enough, animations are handled below in animate() which relies on velocity.
+            // If we stop calling ai.update(), navigation/movement stops updating velocity, so they should stop.
+        }
+
         this.weapon.update(dt);
         this.animate(dt);
     }

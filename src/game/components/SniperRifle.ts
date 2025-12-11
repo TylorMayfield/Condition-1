@@ -16,8 +16,8 @@ export class SniperRifle extends Weapon {
     private adsFOV: number = 25; // Zoomed scope FOV
     private normalFOV: number = 75;
 
-    constructor(game: Game) {
-        super(game, null);
+    constructor(game: Game, owner: any) {
+        super(game, owner);
         this.createWeaponModel();
         this.game.sceneHUD.add(this.mesh);
 
@@ -93,7 +93,7 @@ export class SniperRifle extends Weapon {
         bipod1.position.set(0.1, -0.22, -0.7);
         bipod1.rotation.x = 0.3;
         this.mesh.add(bipod1);
-        
+
         const bipod2 = new THREE.Mesh(bipodGeo, blackMetal);
         bipod2.position.set(0.2, -0.22, -0.7);
         bipod2.rotation.x = 0.3;
@@ -152,7 +152,7 @@ export class SniperRifle extends Weapon {
         if (this.isReloading) {
             const progress = this.getReloadProgress();
             // const easeInOut = (t: number): number => { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; };
-            
+
             // 3-Stage animation: Down -> Cycle Bolt -> Up
             if (progress < 0.2) {
                 // Lower weapon
@@ -176,7 +176,7 @@ export class SniperRifle extends Weapon {
         }
 
         this.mesh.rotateX(this.currentRecoil.x + reloadRotation);
-        
+
         // Apply Reload Position Offset
         this.mesh.translateX(reloadPositionOffset.x);
         this.mesh.translateY(reloadPositionOffset.y);
