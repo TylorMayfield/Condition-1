@@ -121,7 +121,8 @@ export class BallisticsManager {
             if (foundGO) {
                 // Check if it's an enemy/damageable
                 if ('takeDamage' in foundGO && typeof (foundGO as any).takeDamage === 'function') {
-                    (foundGO as any).takeDamage(p.damage, p.velocity.clone().normalize(), 5);
+                    // Pass owner for damage attribution and hit object for hitbox multiplier
+                    (foundGO as any).takeDamage(p.damage, p.velocity.clone().normalize(), 5, p.owner, hit.object);
                     break; // Hit dealt
                 }
             }

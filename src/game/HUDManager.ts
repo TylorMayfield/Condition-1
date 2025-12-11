@@ -1,6 +1,7 @@
 import { Game } from '../engine/Game';
 import * as THREE from 'three';
 import { WeaponWheel } from './components/WeaponWheel';
+import { WeaponSelector } from './components/WeaponSelector';
 
 export class HUDManager {
     private game: Game;
@@ -32,9 +33,12 @@ export class HUDManager {
 
     // Pause Menu
     private pauseMenu: HTMLDivElement;
-    
+
     // Weapon Wheel
     private weaponWheel: WeaponWheel;
+
+    // Weapon Selector (CS-style)
+    private weaponSelector: WeaponSelector;
 
 
     constructor(game: Game) {
@@ -87,6 +91,7 @@ export class HUDManager {
         // @ts-ignore
 
         this.weaponWheel = new WeaponWheel(game);
+        this.weaponSelector = new WeaponSelector(game);
     }
 
     private createPauseMenu(): HTMLDivElement {
@@ -502,6 +507,9 @@ export class HUDManager {
         } else {
             this.aiDebugContainer.innerHTML = '';
         }
+
+        // Update weapon selector (CS-style)
+        this.weaponSelector.update();
     }
 
     private updateAIDebugOverlay() {
@@ -601,11 +609,11 @@ export class HUDManager {
         const createPlayerRow = (entry: any, isBlue: boolean) => {
             const isAlive = entry.status === 'Alive' || entry.status === 'Active';
             const isYou = entry.name === 'You';
-            const bgColor = isBlue 
+            const bgColor = isBlue
                 ? (isAlive ? 'rgba(0,100,200,0.15)' : 'rgba(50,50,50,0.3)')
                 : (isAlive ? 'rgba(200,50,0,0.15)' : 'rgba(50,50,50,0.3)');
             const borderColor = isBlue ? 'rgba(0,150,255,0.2)' : 'rgba(255,100,50,0.2)';
-            
+
             return `
                 <div style="
                     display: flex;
@@ -756,7 +764,7 @@ export class HUDManager {
         }
 
         const color = winner === 'TaskForce' ? '#00ccff' : (winner === 'OpFor' ? '#ff3300' : '#ffffff');
-        
+
         this.roundResultDisplay.innerHTML = `
             <div style="font-size: 48px; font-weight: 800; color: ${color}; text-transform: uppercase; margin-bottom: 10px;">
                 ${winner ? winner + ' WINS' : 'ROUND DRAW'}
@@ -765,7 +773,7 @@ export class HUDManager {
                 ${reason}
             </div>
         `;
-        
+
         this.roundResultDisplay.style.display = 'block';
 
         // Auto hide after a few seconds
@@ -773,6 +781,63 @@ export class HUDManager {
             if (this.roundResultDisplay) this.roundResultDisplay.style.display = 'none';
         }, 4000);
     }
-    
+
+    public showCountdown(seconds: number) {
+        if (!this.countdownDisplay) {
+            this.countdownDisplay = document.createElement('div');
+            this.countdownDisplay.style.position = 'absolute';
+            this.countdownDisplay.style.top = '50%';
+            this.countdownDisplay.style.left = '50%';
+            this.countdownDisplay.style.transform = 'translate(-50%, -50%)';
+            this.countdownDisplay.style.textAlign = 'center';
+            this.countdownDisplay.style.fontFamily = "'Segoe UI', sans-serif";
+            this.countdownDisplay.style.pointerEvents = 'none';
+            this.container.appendChild(this.countdownDisplay);
+        }
+
+        // Display countdown with animation effect
+        const displayNumber = Math.max(1, seconds);
+        this.countdownDisplay.innerHTML = `
+            <div style="
+                font-size: 120px;
+                font-weight: 900;
+                color: #fff;
+                text-shadow: 0 0 40px rgba(0,255,100,0.8), 0 0 80px rgba(0,255,100,0.4);
+                animation: pulse 0.5s ease-in-out;
+            ">${displayNumber}</div>
+            <div style="
+                font-size: 24px;
+                color: rgba(255,255,255,0.7);
+                text-transform: uppercase;
+                letter-spacing: 4px;
+                margin-top: 10px;
+            ">GET READY</div>
+        `;
+
+        this.countdownDisplay.style.display = 'block';
+    }
+
+    public hideCountdown() {
+        if (this.countdownDisplay) {
+            // Flash "GO!" before hiding
+            this.countdownDisplay.innerHTML = `
+                <div style="
+                    font-size: 100px;
+                    font-weight: 900;
+                    color: #00ff00;
+                    text-shadow: 0 0 40px rgba(0,255,100,1), 0 0 80px rgba(0,255,100,0.6);
+                    text-transform: uppercase;
+                ">GO!</div>
+            `;
+
+            setTimeout(() => {
+                if (this.countdownDisplay) {
+                    this.countdownDisplay.style.display = 'none';
+                }
+            }, 800);
+        }
+    }
+
     private roundResultDisplay?: HTMLDivElement;
+    private countdownDisplay?: HTMLDivElement;
 }

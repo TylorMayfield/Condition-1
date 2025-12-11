@@ -6,9 +6,10 @@ import { Game } from '../../engine/Game';
 export class AIMovement {
     private owner: Enemy;
     private game: Game;
-    private moveSpeed: number = 5; // Base walk speed
-    private runSpeed: number = 8; // Run speed
-    private acceleration: number = 25; // Force-based acceleration
+    // Slower, methodical movement speeds - AI clears areas carefully
+    private moveSpeed: number = 2.5; // Base walk speed (slow, tactical)
+    private runSpeed: number = 4.0; // Max speed (tactical jog, no sprinting)
+    private acceleration: number = 20; // Slightly lower acceleration for smoother movement
     private isRunning: boolean = false;
     private currentTarget: THREE.Vector3 | null = null;
 

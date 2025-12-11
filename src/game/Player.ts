@@ -10,6 +10,7 @@ import { Grenade } from './components/Grenade';
 
 export class Player extends GameObject {
     public health: number = 100;
+    public damageDealt: number = 0; // Track damage for TDM scoring
 
     private controller: PlayerController;
     private weapons: Weapon[] = [];
@@ -34,7 +35,7 @@ export class Player extends GameObject {
 
         // Init Components
         this.controller = new PlayerController(game, this);
-        
+
         // Init Weapons
         this.addWeapon(new WeaponSystem(game)); // Assault Rifle
         this.addWeapon(new SniperRifle(game));  // Sniper Rifle
@@ -44,13 +45,14 @@ export class Player extends GameObject {
         // Cylinder representing standing player (Height 1.8m, Radius 0.4m)
         const hitboxGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
         hitboxGeo.translate(0, 0.4, 0); // Offset center to align with body (Sphere center at 0.5, Cylinder center needs to be 0.9)
-        const hitboxMat = new THREE.MeshBasicMaterial({ 
-            color: 0xff0000, 
-            transparent: true, 
+        const hitboxMat = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            transparent: true,
             opacity: 0, // Invisible but hittable
-            depthWrite: false 
+            depthWrite: false
         });
         this.mesh = new THREE.Mesh(hitboxGeo, hitboxMat);
+        this.mesh.name = 'hitbox_body'; // Player is treated as body shot for balancing
         this.game.scene.add(this.mesh);
     }
 
@@ -74,15 +76,12 @@ export class Player extends GameObject {
 
         // Delegate to components
         this.controller.update(dt);
-        
+
         // Update current weapon
         const currentWeapon = this.getCurrentWeapon();
         if (currentWeapon) {
-            // Check for weapon switch input from controller/input system here or in controller
-            // For now, simple direct input check:
-            if (this.game.input.getKeyDown('Digit1')) this.switchWeapon(0);
-            if (this.game.input.getKeyDown('Digit2')) this.switchWeapon(1);
-            
+            // Weapon switching is now handled by WeaponSelector in HUDManager
+
             // Grenade Input
             if (this.game.input.getKeyDown('KeyG')) {
                 this.throwGrenade();
@@ -133,7 +132,7 @@ export class Player extends GameObject {
         if (prevIndex < 0) prevIndex = this.weapons.length - 1;
         this.switchWeapon(prevIndex);
     }
-    
+
     public throwGrenade() {
         if (this.grenadeCount <= 0) return;
         this.grenadeCount--;
@@ -141,12 +140,12 @@ export class Player extends GameObject {
         const camera = this.game.camera;
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         const origin = camera.position.clone().add(dir.clone().multiplyScalar(0.5));
-        
+
         // Add slight up-lob
         const velocity = dir.clone().multiplyScalar(15).add(new THREE.Vector3(0, 5, 0));
-        
+
         new Grenade(this.game, origin, velocity);
-        
+
         // Update HUD (if supported)
         console.log(`Thrown Grenade! Remaining: ${this.grenadeCount}`);
     }
@@ -161,17 +160,17 @@ export class Player extends GameObject {
 
     private die() {
         console.log("Player Died");
-        
+
         // precise death physics
         if (this.body) {
             this.body.fixedRotation = false;
             this.body.updateMassProperties(); // Update inertia
-            
+
             // Push it over
             this.body.applyImpulse(new CANNON.Vec3(2, 0, 0), new CANNON.Vec3(0, 0.5, 0));
             this.body.angularDamping = 0.5;
         }
-        
+
         // Disable controls
         this.game.input.unlockCursor(); // Show cursor
         this.controller.dispose(); // Or disable
@@ -203,7 +202,7 @@ export class Player extends GameObject {
     public respawn(position: THREE.Vector3) {
         console.log("Respawning Player...");
         this.health = 100;
-        
+
         // Reset Physics
         if (this.body) {
             this.body.position.set(position.x, position.y, position.z);
@@ -225,7 +224,7 @@ export class Player extends GameObject {
 
         // Replenish Grenades
         this.grenadeCount = 3;
-        
+
         // Re-enable controls if disabled
         this.game.input.lockCursor();
     }

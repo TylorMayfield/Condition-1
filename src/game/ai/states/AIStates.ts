@@ -70,6 +70,8 @@ export class PatrolState implements IAIStateHandler {
     private failedAttempts: number = 0;
     private readonly maxFailedAttempts = 5;
     private pauseTimer: number = 0;
+    private scanDirection: number = 1; // 1 = left-to-right, -1 = right-to-left
+    private scanAngle: number = 0; // Current scan angle
 
     enter(ai: EnemyAI): void {
         ai.movement.setRunning(false);
@@ -132,33 +134,47 @@ export class PatrolState implements IAIStateHandler {
 
         const distToTarget = pos.distanceTo(this.currentTarget);
 
-        // Check if we've arrived - pause and scan before next point
+        // Check if we've arrived - pause and perform methodical room sweep
         if (distToTarget < 2.0) {
             ai.blackboard.reachedDestination();
-            
-            // Methodical: Pause and scan at corners/points
+
+            // Methodical: Long pause with deliberate sweeping at each point
             if (this.pauseTimer <= 0) {
-                this.pauseTimer = 2.0 + Math.random() * 2.0; // Pause 2-4 seconds
+                // Longer pauses for careful room clearing (4-7 seconds)
+                this.pauseTimer = 4.0 + Math.random() * 3.0;
+                this.scanAngle = 0;
+                this.scanDirection = Math.random() > 0.5 ? 1 : -1; // Randomize initial sweep direction
                 ai.movement.stop();
             } else {
                 this.pauseTimer -= dt;
-                
-                // Scan behavior: look left/right (visual only)
-                const scanSpeed = 1.0;
-                const angle = Math.sin(this.pauseTimer * scanSpeed) * Math.PI * 0.4;
+
+                // Methodical sweeping: slow, deliberate left-to-right-to-left scanning
+                // Wider angle (120 degrees total) and slower speed for thorough coverage
+                const sweepSpeed = 0.5; // Slow sweep
+                const maxSweepAngle = Math.PI * 0.65; // ~120 degrees total sweep
+
+                // Increment scan angle
+                this.scanAngle += this.scanDirection * sweepSpeed * dt;
+
+                // Reverse direction at sweep limits (like a security cam)
+                if (Math.abs(this.scanAngle) > maxSweepAngle / 2) {
+                    this.scanDirection *= -1;
+                    this.scanAngle = Math.sign(this.scanAngle) * maxSweepAngle / 2;
+                }
+
                 if (ai.owner.mesh) {
-                     // Calculate a look target based on current forward + offset
-                     // We can't easily rotate body directly as physics controls it, 
-                     // but we can tell movement to look at a point.
-                     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(ai.owner.mesh.quaternion);
-                     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(ai.owner.mesh.quaternion);
-                     const lookDir = forward.clone().add(right.multiplyScalar(Math.sin(angle)));
-                     const lookTarget = pos.clone().add(lookDir.multiplyScalar(5));
-                     ai.movement.lookAt(lookTarget);
+                    // Calculate look direction based on current sweep angle
+                    const baseForward = new THREE.Vector3(0, 0, 1).applyQuaternion(ai.owner.mesh.quaternion);
+
+                    // Apply scan rotation around Y axis
+                    const lookDir = baseForward.clone()
+                        .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.scanAngle);
+                    const lookTarget = pos.clone().add(lookDir.multiplyScalar(8));
+                    ai.movement.lookAt(lookTarget);
                 }
 
                 if (this.pauseTimer <= 0) {
-                    // Done waiting, get next point
+                    // Done sweeping, move to next point
                     if (this.patrolQueue.length > 0) {
                         this.currentTarget = this.patrolQueue.shift()!;
                         ai.blackboard.setDestination(this.currentTarget);
@@ -176,7 +192,7 @@ export class PatrolState implements IAIStateHandler {
         const velocity = ai.owner.body?.velocity;
         const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
         const isStuck = ai.blackboard.moveTime > 15 && speed < 0.3;
-        
+
         if (isStuck) {
             console.log(`[PatrolState] ${ai.owner.name} stuck (speed: ${speed.toFixed(2)}), recalculating queue`);
             ai.blackboard.moveFailed();
@@ -204,8 +220,8 @@ export class PatrolState implements IAIStateHandler {
 
         // Fill queue up to max size
         const toAdd = this.maxQueueSize - this.patrolQueue.length;
-        let lastPos = this.patrolQueue.length > 0 
-            ? this.patrolQueue[this.patrolQueue.length - 1] 
+        let lastPos = this.patrolQueue.length > 0
+            ? this.patrolQueue[this.patrolQueue.length - 1]
             : (this.currentTarget || currentPos);
 
         for (let i = 0; i < toAdd; i++) {
@@ -310,11 +326,11 @@ export class ChaseState implements IAIStateHandler {
         // - If recently damaged (within 5s)
         // - If health is low
         // - 30% chance at medium range to be cautious
-        const shouldSeekCover = 
+        const shouldSeekCover =
             (ai.blackboard.timeSinceDamaged < 5) ||
             (ai.owner.health < ai.healthThreshold) ||
             (distance > 10 && distance < 25 && Math.random() < 0.005); // Random caution check per frame
-        
+
         if (shouldSeekCover) {
             return AIStateId.TakeCover;
         }
@@ -414,8 +430,8 @@ export class AttackState implements IAIStateHandler {
 
     private handleMovement(ai: EnemyAI, targetPos: THREE.Vector3, _distance: number): void {
         switch (ai.personality) {
-            case 0: // Rusher - keep advancing
-                ai.movement.setRunning(true);
+            case 0: // Rusher - advance tactically (no sprinting)
+                ai.movement.setRunning(false); // Walk, don't run
                 ai.movement.moveTo(targetPos);
                 break;
             case 1: // Sniper - stop and aim
@@ -523,8 +539,8 @@ export class SearchState implements IAIStateHandler {
                 this.scanTimer -= dt;
                 if (this.scanTimer <= 0) {
                     if (this.scanPhase === 1) {
-                         this.scanPhase = 2; // Switch to scan right
-                         this.scanTimer = 1.0;
+                        this.scanPhase = 2; // Switch to scan right
+                        this.scanTimer = 1.0;
                     } else if (this.scanPhase === 2) {
                         // Done scanning this point
                         this.currentSearchIndex++;
@@ -763,7 +779,8 @@ export class AdvanceState implements IAIStateHandler {
     public readonly stateId = AIStateId.Advance;
 
     enter(ai: EnemyAI): void {
-        ai.movement.setRunning(true);
+        // No sprinting - tactical advance only
+        ai.movement.setRunning(false);
     }
 
     update(ai: EnemyAI, _dt: number): AIStateId | null {
@@ -791,7 +808,8 @@ export class RetreatState implements IAIStateHandler {
     private retreatTarget: THREE.Vector3 | null = null;
 
     enter(ai: EnemyAI): void {
-        ai.movement.setRunning(true);
+        // Tactical retreat - walk don't run to maintain awareness
+        ai.movement.setRunning(false);
         this.findRetreatPosition(ai);
     }
 

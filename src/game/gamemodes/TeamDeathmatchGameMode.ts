@@ -18,7 +18,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         'TaskForce': 0,
         'OpFor': 0
     };
-    
+
     // Round configuration
     public roundLimit: number = 5; // First to 5 wins
     public botsPerTeam: number = 5; // 5 vs 5 target
@@ -27,13 +27,18 @@ export class TeamDeathmatchGameMode extends GameMode {
     private roundActive: boolean = false;
     private roundNumber: number = 0;
     private roundEndTimer: number = 0;
-    private roundEndDelay: number = 3; // Seconds before next round starts
+    private roundEndDelay: number = 3; // Seconds before countdown starts
     private isGameOver: boolean = false;
-    
+
+    // Countdown state
+    private countdownActive: boolean = false;
+    private countdownTimer: number = 0;
+    private readonly countdownDuration: number = 5; // 5 second countdown
+
     // Track entities for this round (no respawning)
     private taskForceAlive: Set<GameObject> = new Set();
     private opForAlive: Set<GameObject> = new Set();
-    
+
     constructor(game: Game) {
         super(game);
     }
@@ -44,15 +49,32 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.roundWins['OpFor'] = 0;
         this.roundNumber = 0;
         this.isGameOver = false;
-        
+
         // Ensure clean state immediately to remove any HMR leftovers
         this.cleanupRound();
     }
 
     public update(dt: number): void {
         if (this.isGameOver) return;
-        
-        // If round is not active, we're in between rounds
+
+        // Handle countdown phase
+        if (this.countdownActive) {
+            this.countdownTimer -= dt;
+
+            // Update HUD countdown display
+            const secondsLeft = Math.ceil(this.countdownTimer);
+            (this.game.hudManager as any).showCountdown(secondsLeft);
+
+            if (this.countdownTimer <= 0) {
+                this.countdownActive = false;
+                this.roundActive = true;
+                (this.game.hudManager as any).hideCountdown();
+                console.log(`=== ROUND ${this.roundNumber} - GO! ===`);
+            }
+            return;
+        }
+
+        // If round is not active and not in countdown, we're in between rounds
         if (!this.roundActive) {
             this.roundEndTimer += dt;
             if (this.roundEndTimer >= this.roundEndDelay) {
@@ -60,28 +82,27 @@ export class TeamDeathmatchGameMode extends GameMode {
             }
             return;
         }
-        
+
         // Check for round end condition
         this.checkRoundEnd();
     }
 
     private startNewRound(): void {
         this.cleanupRound(); // Ensure clean slate (removes any existing bots)
-        
+
         this.roundNumber++;
-        this.roundActive = true;
         this.roundEndTimer = 0;
-        
-        console.log(`\n=== ROUND ${this.roundNumber} START ===`);
+
+        console.log(`\n=== ROUND ${this.roundNumber} STARTING ===`);
         console.log(`TaskForce: ${this.roundWins['TaskForce']} | OpFor: ${this.roundWins['OpFor']}`);
-        
+
         // Clear old trackers (redundant with cleanupRound logic but safe)
         this.taskForceAlive.clear();
         this.opForAlive.clear();
-        
+
         // Spawn teams
         this.spawnTeams();
-        
+
         // Register player if alive
         // Register player and respawn
         if (this.game.player) {
@@ -90,6 +111,11 @@ export class TeamDeathmatchGameMode extends GameMode {
             this.game.player.respawn(spawnPos);
             this.taskForceAlive.add(this.game.player);
         }
+
+        // Start countdown (don't activate round yet)
+        this.countdownActive = true;
+        this.countdownTimer = this.countdownDuration;
+        this.roundActive = false; // Round starts after countdown
     }
 
     private spawnTeams(): void {
@@ -97,14 +123,14 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Aim for 5 members total. If player exists, spawn 4 bots.
         const teammateCount = this.botsPerTeam - 1;
         const ctSpawns = this.game.availableSpawns?.CT || [];
-        
+
         for (let i = 0; i < teammateCount; i++) {
             const pos = this.getSpawnPosition(ctSpawns);
             const bot = new Enemy(this.game, pos, 'Player'); // 'Player' team = TaskForce
             this.game.addGameObject(bot);
             this.taskForceAlive.add(bot);
         }
-        
+
         // Spawn OpFor bots (enemies)
         // Spawn full team
         const tSpawns = this.game.availableSpawns?.T || [];
@@ -114,7 +140,7 @@ export class TeamDeathmatchGameMode extends GameMode {
             this.game.addGameObject(bot);
             this.opForAlive.add(bot);
         }
-        
+
         console.log(`Spawned ${teammateCount} TaskForce + ${this.botsPerTeam} OpFor bots`);
     }
 
@@ -125,7 +151,7 @@ export class TeamDeathmatchGameMode extends GameMode {
             pos.z += (Math.random() - 0.5) * 5;
             return pos;
         }
-        
+
         // Fallback
         const angle = Math.random() * Math.PI * 2;
         const radius = 20 + Math.random() * 20;
@@ -139,10 +165,10 @@ export class TeamDeathmatchGameMode extends GameMode {
     private checkRoundEnd(): void {
         // Update alive counts (in case entities died outside of onEntityDeath)
         this.updateAliveCounts();
-        
+
         const taskForceCount = this.taskForceAlive.size;
         const opForCount = this.opForAlive.size;
-        
+
         // Check win conditions
         if (taskForceCount === 0 && opForCount > 0) {
             this.endRound('OpFor');
@@ -163,7 +189,7 @@ export class TeamDeathmatchGameMode extends GameMode {
                 this.taskForceAlive.delete(entity);
             }
         }
-        
+
         for (const entity of this.opForAlive) {
             if (entity instanceof Enemy && entity.health <= 0) {
                 this.opForAlive.delete(entity);
@@ -174,7 +200,7 @@ export class TeamDeathmatchGameMode extends GameMode {
     private endRound(winner: string | null): void {
         this.roundActive = false;
         this.roundEndTimer = 0;
-        
+
         if (winner) {
             this.roundWins[winner]++;
             // const message = `${winner} WINS`;
@@ -184,16 +210,16 @@ export class TeamDeathmatchGameMode extends GameMode {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
             (this.game.hudManager as any).showRoundResult(null, "No survivors");
         }
-        
+
         console.log(`Score: TaskForce ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']} OpFor`);
-        
+
         // Check for game win
         if (this.roundWins['TaskForce'] >= this.roundLimit) {
             this.endGame('TaskForce');
         } else if (this.roundWins['OpFor'] >= this.roundLimit) {
             this.endGame('OpFor');
         }
-        
+
         // Clean up dead bodies for next round
         this.cleanupRound();
     }
@@ -201,20 +227,20 @@ export class TeamDeathmatchGameMode extends GameMode {
     private cleanupRound(): void {
         // Remove all enemy objects
         // Use constructor name check to catch HMR ghosts where instanceof fails
-        const toRemove = this.game.getGameObjects().filter(go => 
+        const toRemove = this.game.getGameObjects().filter(go =>
             go instanceof Enemy || go.constructor.name === 'Enemy'
         );
-        
+
         toRemove.forEach(go => {
             // Explicitly try calling dispose if it exists
             if ('dispose' in go && typeof (go as any).dispose === 'function') {
-                (go as any).dispose(); 
+                (go as any).dispose();
             } else {
                 // Fallback force remove
                 this.game.removeGameObject(go);
             }
         });
-        
+
         // Reset player health for next round
         if (this.game.player) {
             this.game.player.health = 100;
@@ -227,7 +253,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         console.log(`     ${winner} WINS THE GAME!`);
         console.log(`     Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
         console.log(`========================================`);
-        
+
         // Simple game over for now
         setTimeout(() => {
             alert(`${winner} Wins the Match!\n\nFinal Score:\nTaskForce: ${this.roundWins['TaskForce']}\nOpFor: ${this.roundWins['OpFor']}`);
@@ -242,20 +268,20 @@ export class TeamDeathmatchGameMode extends GameMode {
         } else if (victim.team === 'OpFor') {
             this.opForAlive.delete(victim);
         }
-        
+
         // Track individual kills
         if (killer instanceof Enemy) {
             killer.score++;
         }
     }
-    
+
     public registerEntity(_entity: GameObject): void {
         // No dynamic registration in round-based mode
     }
 
     public getScoreboardData(): ScoreData[] {
         const data: ScoreData[] = [];
-        
+
         // Header info
         data.push({
             name: `--- ROUND ${this.roundNumber} ---`,
@@ -263,26 +289,26 @@ export class TeamDeathmatchGameMode extends GameMode {
             score: 0,
             status: `${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`
         });
-        
-        // Player
+
+        // Player - show damage dealt as score
         if (this.game.player) {
             data.push({
                 name: 'You',
                 team: 'TaskForce',
-                score: 0,
+                score: this.game.player.damageDealt,
                 status: this.game.player.health > 0 ? 'Alive' : 'Dead'
             });
         }
-        
-        // All Bots
+
+        // All Bots - show damage dealt as score
         const allObjects = this.game.getGameObjects();
         for (const go of allObjects) {
             if (go instanceof Enemy) {
                 data.push({
                     name: go.name,
                     team: go.team === 'Player' ? 'TaskForce' : go.team,
-                    score: go.score,
-                    status: go.health > 0 ? 'Alive' : 'Dead'
+                    score: go.damageDealt,
+                    status: go.isDead ? 'Dead' : 'Alive'
                 });
             }
         }

@@ -5,6 +5,7 @@ import { GameObject } from '../engine/GameObject';
 import { EnemyAI, AIPersonality } from './components/EnemyAI';
 import { EnemyWeapon } from './components/EnemyWeapon';
 import { RagdollBuilder } from './RagdollBuilder';
+import { AmmoPickup } from './pickups/AmmoPickup';
 
 export class Enemy extends GameObject {
     public health: number = 100;
@@ -21,6 +22,7 @@ export class Enemy extends GameObject {
     // Identity
     public name: string;
     public score: number = 0;
+    public damageDealt: number = 0; // Track damage this bot has dealt
 
     private static BOT_NAMES = [
         "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon",
@@ -28,11 +30,16 @@ export class Enemy extends GameObject {
         "Ranger", "Hunter", "Stalker", "Spectre"
     ];
 
-    // Ragdoll State
-    private isRagdoll: boolean = false;
+    // Ragdoll State (also indicates death - ragdolled enemies are dead)
+    public isRagdoll: boolean = false;
     private ragdollBodies: CANNON.Body[] = [];
     private ragdollConstraints: CANNON.Constraint[] = [];
     private deadTime: number = 0;
+
+    /** Returns true if this enemy is dead (ragdolled) */
+    public get isDead(): boolean {
+        return this.isRagdoll || this.health <= 0;
+    }
 
     constructor(game: Game, position: THREE.Vector3, team: string = 'Enemy') {
         super(game);
@@ -55,6 +62,7 @@ export class Enemy extends GameObject {
         this.bodyMesh = new THREE.Mesh(bodyGeo, mat);
         this.bodyMesh.position.y = 0.6; // Was -0.5, shifted +1.1
         this.bodyMesh.castShadow = true;
+        this.bodyMesh.name = 'hitbox_body'; // For damage multiplier identification
         this.mesh.add(this.bodyMesh);
 
         // Head - smaller and properly positioned
@@ -62,6 +70,7 @@ export class Enemy extends GameObject {
         this.head = new THREE.Mesh(headGeo, mat);
         this.head.position.y = 1.25; // Was 0.15, shifted +1.1
         this.head.castShadow = true;
+        this.head.name = 'hitbox_head'; // For damage multiplier identification
         this.mesh.add(this.head);
 
         // Arms (Visual only) - shorter and better positioned
@@ -69,11 +78,13 @@ export class Enemy extends GameObject {
         this.leftArm = new THREE.Mesh(armGeo, mat);
         this.leftArm.position.set(-0.4, 0.55, 0); // Was -0.55, shifted +1.1
         this.leftArm.castShadow = true;
+        this.leftArm.name = 'hitbox_arm'; // For damage multiplier identification
         this.mesh.add(this.leftArm);
 
         this.rightArm = new THREE.Mesh(armGeo, mat);
         this.rightArm.position.set(0.4, 0.55, 0); // Was -0.55, shifted +1.1
         this.rightArm.castShadow = true;
+        this.rightArm.name = 'hitbox_arm'; // For damage multiplier identification
         this.mesh.add(this.rightArm);
 
         // Legs (Visual only) - positioned from torso bottom to feet
@@ -82,12 +93,13 @@ export class Enemy extends GameObject {
         this.leftLeg = new THREE.Mesh(legGeo, mat);
         this.leftLeg.position.set(-0.15, -0.05, 0); // Was -1.15, shifted +1.1
         this.leftLeg.castShadow = true;
+        this.leftLeg.name = 'hitbox_leg'; // For damage multiplier identification
         this.mesh.add(this.leftLeg);
 
         this.rightLeg = new THREE.Mesh(legGeo, mat);
         this.rightLeg.position.set(0.15, -0.05, 0); // Was -1.15, shifted +1.1
         this.rightLeg.castShadow = true;
-        this.mesh.add(this.rightLeg);
+        this.rightLeg.name = 'hitbox_leg'; // For damage multiplier identification
         this.mesh.add(this.rightLeg);
 
         this.game.scene.add(this.mesh);
@@ -133,23 +145,69 @@ export class Enemy extends GameObject {
         (this.body as any).gameObject = this;
     }
 
-    public takeDamage(amount: number, forceDir: THREE.Vector3, forceMagnitude: number) {
+    public takeDamage(amount: number, forceDir: THREE.Vector3, forceMagnitude: number, attacker?: any, hitObject?: THREE.Object3D) {
         if (this.isRagdoll) return; // Already dead/ragdolled
 
-        this.health -= amount;
-        
+        // Calculate damage multiplier based on body part hit
+        let multiplier = 1.0;
+        let hitZone = 'body';
+
+        if (hitObject && hitObject.name) {
+            if (hitObject.name === 'hitbox_head') {
+                multiplier = 2.5; // Headshot: 2.5x damage
+                hitZone = 'head';
+            } else if (hitObject.name === 'hitbox_body') {
+                multiplier = 1.0; // Torso: normal damage
+                hitZone = 'body';
+            } else if (hitObject.name === 'hitbox_arm') {
+                multiplier = 0.6; // Arm: reduced damage
+                hitZone = 'arm';
+            } else if (hitObject.name === 'hitbox_leg') {
+                multiplier = 0.6; // Leg: reduced damage
+                hitZone = 'leg';
+            }
+        }
+
+        // Apply multiplier with slight variance (±10%)
+        const variance = 0.9 + Math.random() * 0.2;
+        const finalDamage = Math.round(amount * multiplier * variance);
+
+        this.health -= finalDamage;
+
+        // Credit damage to attacker (final damage after multiplier)
+        if (attacker && 'damageDealt' in attacker) {
+            attacker.damageDealt += finalDamage;
+        }
+
+        // Log hit for debugging
+        console.log(`Hit ${this.name} in ${hitZone}: ${amount} * ${multiplier.toFixed(1)}x = ${finalDamage} damage`);
+
         // Play impact sound at hit location
         if (this.body) {
             const pos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
             this.game.soundManager.playImpact(pos);
         }
-        
+
+        // Notify AI of damage direction
+        if (this.ai && this.body) {
+            const damagePos = new THREE.Vector3(
+                this.body.position.x - forceDir.x * 5,
+                this.body.position.y,
+                this.body.position.z - forceDir.z * 5
+            );
+            this.ai.onTakeDamage(damagePos);
+        }
+
         if (this.health <= 0) {
             // Play death sound
             if (this.body) {
                 const deathPos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
                 this.game.soundManager.playDeath(deathPos);
             }
+
+            // Notify game mode of death
+            this.game.onEnemyDeath(this, attacker);
+
             this.activateRagdoll(forceDir.multiplyScalar(forceMagnitude));
             return;
         }
@@ -178,13 +236,13 @@ export class Enemy extends GameObject {
         // transform control: attach to scene, maintain world transform
         const parts: THREE.Object3D[] = [this.head, this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg];
         parts.forEach(part => {
-             // Offset slightly upward BEFORE attaching to scene to ensure physics start clear of ground
-             // (THREE.Scene.attach preserves world transform, so we modify transform first)
-             // Actually, attach PRESERVES world transform, so moving it while child of Group moves it relative to Group.
-             // Group is at world pos.
-             part.position.y += 0.2; 
-             part.updateMatrixWorld(); // Update world matrix with new local pos
-             this.game.scene.attach(part);
+            // Offset slightly upward BEFORE attaching to scene to ensure physics start clear of ground
+            // (THREE.Scene.attach preserves world transform, so we modify transform first)
+            // Actually, attach PRESERVES world transform, so moving it while child of Group moves it relative to Group.
+            // Group is at world pos.
+            part.position.y += 0.2;
+            part.updateMatrixWorld(); // Update world matrix with new local pos
+            this.game.scene.attach(part);
         });
 
         // Remove the container mesh (Group) as it is now empty/useless
@@ -194,9 +252,9 @@ export class Enemy extends GameObject {
         // Initial velocity from the kill shot + current movement
         const initVel = new CANNON.Vec3(0, 0, 0);
         if (forceVec) {
-             // CLAMP FORCE: Too much force causes tunneling through map
-             const clampedForce = forceVec.clone().clampLength(0, 10); // Max 10 m/s impulse
-             initVel.copy(clampedForce as any);
+            // CLAMP FORCE: Too much force causes tunneling through map
+            const clampedForce = forceVec.clone().clampLength(0, 10); // Max 10 m/s impulse
+            initVel.copy(clampedForce as any);
         }
 
         const rd = RagdollBuilder.createRagdoll(this.game, {
@@ -214,6 +272,19 @@ export class Enemy extends GameObject {
         // Add to world
         this.ragdollBodies.forEach(b => this.game.world.addBody(b));
         this.ragdollConstraints.forEach(c => this.game.world.addConstraint(c));
+
+        // Spawn ammo pickup at death location
+        const deathPos = new THREE.Vector3();
+        if (this.ragdollBodies[0]) {
+            deathPos.set(
+                this.ragdollBodies[0].position.x,
+                this.ragdollBodies[0].position.y,
+                this.ragdollBodies[0].position.z
+            );
+        } else if (this.mesh) {
+            deathPos.copy(this.mesh.position);
+        }
+        new AmmoPickup(this.game, deathPos, 30);
 
         // Disable AI
         // this.ai.dispose(); // Or just stop updating
