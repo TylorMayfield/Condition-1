@@ -150,13 +150,16 @@ export class AIMovement {
                 // We used `teleport` in RecastNavigation. 
 
                 // Let's try syncing periodically or if distance is large.
+                // CRITICAL: Only sync position if drift is very large (teleport resets velocity!)
+                // The Recast agent does its own navigation, but we need physics for collisions.
+                // Only resync if agent has drifted very far from physics body.
                 const navPos = this.game.recastNav.getAgentPosition(this.owner.ai.entityId);
                 if (navPos) {
-                    const distSq = navPos.distanceToSquared(this.owner.body.position as any);
-                    if (distSq > 0.25) { // Tolerance 0.5m (0.25 sq)
-                        // console.log("Drift detected, syncing agent...");
-                        const physicsPos = new THREE.Vector3(this.owner.body.position.x, this.owner.body.position.y, this.owner.body.position.z);
-                        this.game.recastNav.updateAgentPosition(this.owner.ai.entityId, physicsPos);
+                    const physPos = new THREE.Vector3(this.owner.body.position.x, this.owner.body.position.y, this.owner.body.position.z);
+                    const distSq = navPos.distanceToSquared(physPos);
+                    // Only teleport if drift is extreme (4m+ = 16 sq) - this prevents velocity reset
+                    if (distSq > 16) {
+                        this.game.recastNav.updateAgentPosition(this.owner.ai.entityId, physPos);
                     }
                 }
             } else {

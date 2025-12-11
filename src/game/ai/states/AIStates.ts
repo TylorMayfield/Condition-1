@@ -18,7 +18,7 @@ export class IdleState implements IAIStateHandler {
 
     enter(ai: EnemyAI): void {
         ai.movement.stop();
-        this.waitTime = 1 + Math.random() * 2; // Wait 1-3 seconds before patrol
+        this.waitTime = 0.5 + Math.random() * 1.0; // Wait 0.5-1.5 seconds before patrol
     }
 
     update(ai: EnemyAI, dt: number): AIStateId | null {
@@ -56,113 +56,177 @@ export class IdleState implements IAIStateHandler {
  * PatrolState - AI moves between waypoints looking for threats
  * 
  * Behaviors:
- * - Navigate to random points on navmesh
- * - Score points for openness (avoid corners)
- * - Scan for targets while moving
+ * - Maintain a queue of 10 anticipated patrol points
+ * - Seamlessly move from one point to the next
+ * - Continuously replenish queue while moving
+ * - Interrupts: target spotted, sounds, damage -> override and recalculate
  */
 export class PatrolState implements IAIStateHandler {
     public readonly stateId = AIStateId.Patrol;
-    private patrolTarget: THREE.Vector3 | null = null;
-    private waitTimer: number = 0;
-    private patrolPointAttempts: number = 0;
-    private readonly maxAttempts = 5;
+    private patrolQueue: THREE.Vector3[] = [];  // Queue of up to 10 points
+    private currentTarget: THREE.Vector3 | null = null;
+    private readonly maxQueueSize = 10;
+    private readonly refillThreshold = 5;  // Refill when queue drops below this
+    private failedAttempts: number = 0;
+    private readonly maxFailedAttempts = 5;
 
     enter(ai: EnemyAI): void {
         ai.movement.setRunning(false);
-        this.patrolTarget = null;
-        this.waitTimer = 0;
-        this.patrolPointAttempts = 0;
+        this.patrolQueue = [];
+        this.currentTarget = null;
+        this.failedAttempts = 0;
+        // Pre-fill the queue on entry
+        this.refillQueue(ai);
     }
 
-    update(ai: EnemyAI, dt: number): AIStateId | null {
-        // Priority: Check for targets
+    update(ai: EnemyAI, _dt: number): AIStateId | null {
+        // Wait for Recast agent to be registered
+        if (!ai.useRecast) {
+            return null;
+        }
+
+        // Priority: Check for targets (interrupt - clears queue)
         if (ai.target && ai.senses.canSee(ai.target)) {
             ai.blackboard.sawTarget(
                 new THREE.Vector3(ai.target.body!.position.x, ai.target.body!.position.y, ai.target.body!.position.z)
             );
+            this.clearQueue();
             return AIStateId.Chase;
         }
 
-        // Check for sounds
+        // Check for sounds (interrupt)
         const sound = ai.blackboard.getMostImportantSound();
         if (sound) {
-            ai.alertParams = { pos: sound.pos.clone(), timer: 5000 };
+            ai.alertParams = { pos: sound.pos.clone(), timer: 3000 };
             ai.blackboard.heardSounds = [];
+            this.clearQueue();
             return AIStateId.Alert;
         }
 
-        // If no patrol target, find one
-        if (!this.patrolTarget) {
-            this.waitTimer -= dt;
-            if (this.waitTimer <= 0) {
-                this.patrolTarget = this.findPatrolPoint(ai);
-                if (this.patrolTarget) {
-                    console.log(`[PatrolState] ${ai.owner.name} found patrol target: ${this.patrolTarget.toArray()}`);
-                    ai.blackboard.setDestination(this.patrolTarget);
-                    ai.movement.moveTo(this.patrolTarget);
-                    this.patrolPointAttempts = 0;
-                } else {
-                    this.patrolPointAttempts++;
-                    this.waitTimer = 0.5; // Try again soon
-                    console.log(`[PatrolState] ${ai.owner.name} failed to find patrol point (attempt ${this.patrolPointAttempts}/${this.maxAttempts})`);
+        // Refill queue if running low
+        if (this.patrolQueue.length < this.refillThreshold) {
+            this.refillQueue(ai);
+        }
 
-                    if (this.patrolPointAttempts >= this.maxAttempts) {
-                        console.warn(`[PatrolState] ${ai.owner.name} giving up after ${this.maxAttempts} attempts`);
-                        return AIStateId.Idle;
-                    }
+        // If no current target, get next from queue
+        if (!this.currentTarget) {
+            if (this.patrolQueue.length > 0) {
+                this.currentTarget = this.patrolQueue.shift()!;
+                ai.blackboard.setDestination(this.currentTarget);
+                ai.movement.moveTo(this.currentTarget);
+                this.failedAttempts = 0;
+            } else {
+                // Queue empty and can't refill - wait briefly
+                this.failedAttempts++;
+                if (this.failedAttempts >= this.maxFailedAttempts) {
+                    console.warn(`[PatrolState] ${ai.owner.name} can't find patrol points, going idle`);
+                    return AIStateId.Idle;
                 }
+                return null;
+            }
+        }
+
+        const pos = ai.getOwnerPosition();
+        if (!pos || !this.currentTarget) return null;
+
+        const distToTarget = pos.distanceTo(this.currentTarget);
+
+        // Check if we've arrived - immediately transition to next
+        if (distToTarget < 2.0) {
+            ai.blackboard.reachedDestination();
+            // Get next target immediately
+            if (this.patrolQueue.length > 0) {
+                this.currentTarget = this.patrolQueue.shift()!;
+                ai.blackboard.setDestination(this.currentTarget);
+                ai.movement.moveTo(this.currentTarget);
+            } else {
+                this.currentTarget = null;
             }
             return null;
         }
 
-        // Check if we've arrived
-        const pos = ai.getOwnerPosition();
-        if (pos && pos.distanceTo(this.patrolTarget) < 2.0) {
-            this.patrolTarget = null;
-            ai.blackboard.reachedDestination();
-            this.waitTimer = 2 + Math.random() * 2; // Wait 2-4s before next point
-            return AIStateId.Idle; // Brief idle before next patrol
-        }
-
-        // Check for stuck
-        if (ai.blackboard.moveTime > 10) {
-            // Been moving too long without arriving
+        // Check for stuck - only if we've been trying to move for a while AND barely moving
+        // Check velocity to confirm AI is actually stuck (not just on a long patrol route)
+        const velocity = ai.owner.body?.velocity;
+        const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
+        const isStuck = ai.blackboard.moveTime > 15 && speed < 0.3;
+        
+        if (isStuck) {
+            console.log(`[PatrolState] ${ai.owner.name} stuck (speed: ${speed.toFixed(2)}), recalculating queue`);
             ai.blackboard.moveFailed();
-            this.patrolTarget = null;
-            this.waitTimer = 0.5;
+            this.clearQueue();
+            this.refillQueue(ai);
         }
 
         return null;
     }
 
     exit(_ai: EnemyAI): void {
-        this.patrolTarget = null;
+        this.clearQueue();
     }
 
-    private findPatrolPoint(ai: EnemyAI): THREE.Vector3 | null {
+    private clearQueue(): void {
+        this.patrolQueue = [];
+        this.currentTarget = null;
+    }
+
+    private refillQueue(ai: EnemyAI): void {
         const currentPos = ai.getOwnerPosition();
-        if (!currentPos) {
-            console.log(`[PatrolState] ${ai.owner.name} - no owner position`);
-            return null;
-        }
-        if (!ai.game.recastNav) {
-            console.log(`[PatrolState] ${ai.owner.name} - no recastNav`);
-            return null;
-        }
-        if (!ai.game.recastNav.getCrowd()) {
-            console.log(`[PatrolState] ${ai.owner.name} - no recast crowd`);
-            return null;
+        if (!currentPos || !ai.game.recastNav || !ai.game.recastNav.getCrowd()) {
+            return;
         }
 
+        // Fill queue up to max size
+        const toAdd = this.maxQueueSize - this.patrolQueue.length;
+        let lastPos = this.patrolQueue.length > 0 
+            ? this.patrolQueue[this.patrolQueue.length - 1] 
+            : (this.currentTarget || currentPos);
+
+        for (let i = 0; i < toAdd; i++) {
+            const pt = this.findNextPatrolPoint(ai, lastPos);
+            if (pt) {
+                this.patrolQueue.push(pt);
+                lastPos = pt;
+            }
+        }
+    }
+
+    private findNextPatrolPoint(ai: EnemyAI, fromPos: THREE.Vector3): THREE.Vector3 | null {
+        if (!ai.game.recastNav) return null;
+
+        // Try to use strategic patrol points if available
+        const strategicPoints = ai.game.recastNav.strategicPoints?.patrolPoints;
+        if (strategicPoints && strategicPoints.length > 0) {
+            // Pick a random strategic point that isn't too close to where we're coming from
+            const candidates = strategicPoints.filter(p => {
+                const dist = fromPos.distanceTo(new THREE.Vector3(...p.position));
+                return dist > 8; // At least 8m away
+            });
+
+            if (candidates.length > 0) {
+                // Weighted random selection by score
+                const totalScore = candidates.reduce((sum, p) => sum + p.score, 0);
+                let random = Math.random() * totalScore;
+                for (const pt of candidates) {
+                    random -= pt.score;
+                    if (random <= 0) {
+                        return new THREE.Vector3(...pt.position);
+                    }
+                }
+                // Fallback to first candidate
+                return new THREE.Vector3(...candidates[0].position);
+            }
+        }
+
+        // Fallback: sample random points
         let bestPoint: THREE.Vector3 | null = null;
         let bestScore = -Infinity;
 
-        // Sample 3-5 candidates
         for (let i = 0; i < 4; i++) {
-            const radius = 15 + Math.random() * 25; // 15-40m range
-            const pt = ai.game.recastNav.getRandomPointAround(currentPos, radius);
+            const radius = 15 + Math.random() * 25;
+            const pt = ai.game.recastNav.getRandomPointAround(fromPos, radius);
             if (pt) {
-                const score = this.evaluatePoint(ai, pt);
+                const score = fromPos.distanceTo(pt);
                 if (score > bestScore) {
                     bestScore = score;
                     bestPoint = pt;
@@ -172,32 +236,23 @@ export class PatrolState implements IAIStateHandler {
 
         return bestPoint;
     }
-
-    private evaluatePoint(ai: EnemyAI, pt: THREE.Vector3): number {
-        // Prefer open areas (less likely to get stuck)
-        // Use the existing evaluatePatrolPoint from EnemyAI if available
-        // For now, simple distance from current pos as tiebreaker
-        const currentPos = ai.getOwnerPosition();
-        if (!currentPos) return 0;
-
-        return currentPos.distanceTo(pt);
-    }
 }
 
 /**
- * ChaseState - AI has detected a target and is pursuing
+ * ChaseState - AI has detected a target and is pursuing TACTICALLY
  * 
  * Behaviors:
- * - Run toward target's last known position
- * - Update position if target is visible
+ * - Walk toward target carefully (no running/charging)
+ * - Seek cover when possible
  * - Transition to Attack when in range
- * - Consider cover if taking damage
+ * - Prefer flanking and cover over direct assault
  */
 export class ChaseState implements IAIStateHandler {
     public readonly stateId = AIStateId.Chase;
 
     enter(ai: EnemyAI): void {
-        ai.movement.setRunning(true);
+        // TACTICAL: Walk, don't run - be careful and methodical
+        ai.movement.setRunning(false);
     }
 
     update(ai: EnemyAI, _dt: number): AIStateId | null {
@@ -225,13 +280,21 @@ export class ChaseState implements IAIStateHandler {
             return AIStateId.Attack;
         }
 
-        // Taking damage? Consider cover
-        if (ai.blackboard.timeSinceDamaged < 2 && ai.owner.health < ai.healthThreshold) {
+        // TACTICAL: Seek cover more aggressively
+        // - If recently damaged (within 5s)
+        // - If health is low
+        // - 30% chance at medium range to be cautious
+        const shouldSeekCover = 
+            (ai.blackboard.timeSinceDamaged < 5) ||
+            (ai.owner.health < ai.healthThreshold) ||
+            (distance > 10 && distance < 25 && Math.random() < 0.005); // Random caution check per frame
+        
+        if (shouldSeekCover) {
             return AIStateId.TakeCover;
         }
 
-        // Personality-based tactical decisions
-        if (ai.personality === 2 && distance > 15 && Math.random() < 0.01) { // Tactical
+        // TACTICAL: Prefer flanking over direct assault at medium-long range
+        if (distance > 12 && Math.random() < 0.02) {
             return AIStateId.Flank;
         }
 
@@ -240,7 +303,7 @@ export class ChaseState implements IAIStateHandler {
             return AIStateId.Search;
         }
 
-        // Move toward target (or last known position)
+        // Move toward target CAREFULLY (or last known position)
         const moveTarget = canSee ? targetPos : ai.blackboard.lastKnownTargetPos;
         if (moveTarget) {
             // Use tactical offset to avoid all AI bunching up
@@ -461,7 +524,8 @@ export class TakeCoverState implements IAIStateHandler {
 
     enter(ai: EnemyAI): void {
         this.findCover(ai);
-        ai.movement.setRunning(true);
+        // TACTICAL: Walk to cover, don't sprint
+        ai.movement.setRunning(false);
         this.inCover = false;
     }
 
@@ -537,7 +601,8 @@ export class FlankState implements IAIStateHandler {
 
     enter(ai: EnemyAI): void {
         this.findFlankPosition(ai);
-        ai.movement.setRunning(true);
+        // TACTICAL: Walk to flank, stay quiet
+        ai.movement.setRunning(false);
     }
 
     update(ai: EnemyAI, _dt: number): AIStateId | null {

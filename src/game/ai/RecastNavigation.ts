@@ -3,6 +3,37 @@ import { init, NavMesh, NavMeshQuery, Crowd, CrowdAgent, importNavMesh } from 'r
 import { threeToSoloNavMesh, NavMeshHelper, CrowdHelper } from '@recast-navigation/three';
 import { Game } from '../../engine/Game';
 
+// Strategic point types (matching baking script output)
+export interface PatrolPoint {
+    position: [number, number, number];
+    score: number;
+}
+
+export interface CoverSpot {
+    position: [number, number, number];
+    coverDirection: [number, number, number];
+    quality: number;
+}
+
+export interface ChokePoint {
+    position: [number, number, number];
+    width: number;
+    connections: [number, number, number][];
+}
+
+export interface VantagePoint {
+    position: [number, number, number];
+    visibilityScore: number;
+    elevation: number;
+}
+
+export interface StrategicPoints {
+    patrolPoints: PatrolPoint[];
+    coverSpots: CoverSpot[];
+    chokePoints: ChokePoint[];
+    vantagePoints: VantagePoint[];
+}
+
 /**
  * Navigation system using the industry-standard Recast/Detour library
  * Provides: navmesh generation, pathfinding, and crowd simulation
@@ -20,6 +51,9 @@ export class RecastNavigation {
     private debugEnabled: boolean = false;
 
     private initialized: boolean = false;
+
+    // Strategic tactical data
+    public strategicPoints: StrategicPoints | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -174,11 +208,31 @@ export class RecastNavigation {
             });
 
             console.log(`[RecastNav] Navmesh loaded successfully!`);
-            // this.setDebugDraw(true);
+
+            // Also try to load tactical data
+            await this.loadTacticalData(url.replace('.bin', '.tactical.json'));
+
             return true;
         } catch (e) {
             console.error('[RecastNav] Error loading navmesh:', e);
             return false;
+        }
+    }
+
+    /**
+     * Load tactical/strategic point data
+     */
+    private async loadTacticalData(url: string): Promise<void> {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.warn(`[RecastNav] No tactical data found (optional): ${url}`);
+                return;
+            }
+            this.strategicPoints = await response.json();
+            console.log(`[RecastNav] Tactical data loaded: ${this.strategicPoints?.patrolPoints.length} patrol, ${this.strategicPoints?.coverSpots.length} cover, ${this.strategicPoints?.chokePoints.length} choke, ${this.strategicPoints?.vantagePoints.length} vantage`);
+        } catch (e) {
+            console.warn('[RecastNav] Could not load tactical data (optional):', e);
         }
     }
 

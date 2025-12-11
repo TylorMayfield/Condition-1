@@ -32,17 +32,64 @@ export class AICover {
             this.owner.body.position.z
         );
 
+        // First try strategic cover spots if available
+        const strategicCover = this.findStrategicCover(ownerPos, threatPosition);
+        if (strategicCover) return strategicCover;
+
+        // Fallback: dynamic cover detection
+        return this.findDynamicCover(ownerPos, threatPosition);
+    }
+
+    /**
+     * Find cover from pre-computed strategic spots
+     */
+    private findStrategicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3): CoverPoint | null {
+        const coverSpots = this.game.recastNav?.strategicPoints?.coverSpots;
+        if (!coverSpots || coverSpots.length === 0) return null;
+
+        let bestCover: CoverPoint | null = null;
+        let bestScore = -1;
+
+        for (const spot of coverSpots) {
+            const coverPos = new THREE.Vector3(...spot.position);
+            const coverDir = new THREE.Vector3(...spot.coverDirection);
+            
+            // Check if this cover direction faces away from threat
+            const threatDir = new THREE.Vector3().subVectors(threatPosition, coverPos).normalize();
+            const alignment = -coverDir.dot(threatDir);  // Cover should block threat direction
+            
+            if (alignment < 0.3) continue;  // Cover doesn't help against this threat
+
+            const distance = ownerPos.distanceTo(coverPos);
+            if (distance > this.coverSearchRadius) continue;
+
+            // Score: quality * alignment, penalized by distance
+            const score = spot.quality * alignment * (1 - distance / this.coverSearchRadius);
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestCover = {
+                    position: coverPos,
+                    quality: spot.quality,
+                    distance
+                };
+            }
+        }
+
+        return bestCover;
+    }
+
+    /**
+     * Fallback: Find cover through runtime scene analysis
+     */
+    private findDynamicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3): CoverPoint | null {
         let _bestCover: CoverPoint | null = null;
         let bestScore = -1;
 
-        // Search for nearby obstacles that could provide cover
         const potentialCovers: CoverPoint[] = [];
 
-        // Check all game objects for potential cover
         for (const obj of this.game.getGameObjects()) {
             if (!obj.body || obj === this.owner) continue;
-
-            // Skip the player and other enemies
             if (obj === this.game.player || obj instanceof Enemy) continue;
 
             const objPos = new THREE.Vector3(
@@ -54,19 +101,17 @@ export class AICover {
             const distance = ownerPos.distanceTo(objPos);
             if (distance > this.coverSearchRadius) continue;
 
-            // Check if object is tall enough to provide cover (at least 1m tall)
             const bounds = obj.body.shapes[0];
             if (bounds && 'halfExtents' in bounds) {
                 const halfExtents = (bounds as CANNON.Box).halfExtents;
-                if (halfExtents.y < 0.5) continue; // Too short to be cover
+                if (halfExtents.y < 0.5) continue;
             }
 
-            // Find cover positions around the obstacle
             const coverPositions = this.findCoverPositionsAroundObstacle(objPos, threatPosition, ownerPos);
 
             for (const coverPos of coverPositions) {
                 const quality = this.evaluateCoverQuality(coverPos, objPos, threatPosition);
-                if (quality > 0.3) { // Only consider decent cover
+                if (quality > 0.3) {
                     potentialCovers.push({
                         position: coverPos,
                         quality: quality,
@@ -76,9 +121,7 @@ export class AICover {
             }
         }
 
-        // Find the best cover
         for (const cover of potentialCovers) {
-            // Score based on quality and distance (closer is better, but quality matters more)
             const score = cover.quality * 0.7 + (1 - Math.min(cover.distance / this.coverSearchRadius, 1)) * 0.3;
 
             if (score > bestScore) {

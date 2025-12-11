@@ -34,8 +34,12 @@ export class VmfWorldBuilder {
 
     private materialsCache: Map<string, THREE.Material> = new Map();
 
-    public build(mapData: VmfMap) {
-        console.log(`VmfWorldBuilder: Building map version ${mapData.version}`);
+    /**
+     * Build options for VmfWorldBuilder
+     */
+    public build(mapData: VmfMap, options?: { forNavmesh?: boolean }) {
+        const forNavmesh = options?.forNavmesh ?? false;
+        console.log(`VmfWorldBuilder: Building map version ${mapData.version}${forNavmesh ? ' (for navmesh)' : ''}`);
 
         // Chunking
         const CHUNK_SIZE = 20;
@@ -56,7 +60,13 @@ export class VmfWorldBuilder {
             'TOOLS/TOOLSHINT'
         ];
 
-        const VISUAL_IGNORED = [
+        // When building for navmesh, include CLIP and NODRAW as they represent collision geometry
+        const VISUAL_IGNORED = forNavmesh ? [
+            'TOOLS/TOOLSSKIP',
+            'TOOLS/TOOLSHINT',
+            'TOOLS/TOOLSSKYBOX',
+            'TOOLS/TOOLSORIGIN'
+        ] : [
             'TOOLS/TOOLSNODRAW',
             'TOOLS/TOOLSCLIP',
             'TOOLS/TOOLSSKIP',

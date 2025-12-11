@@ -4,8 +4,9 @@ import * as CANNON from 'cannon-es';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { init, exportNavMesh } from 'recast-navigation';
+import { init, exportNavMesh, NavMeshQuery } from 'recast-navigation';
 import { threeToSoloNavMesh } from '@recast-navigation/three';
+import { detectStrategicPoints } from './strategic-detection';
 
 // Import Project Modules
 import { VmfParser } from '../src/game/maps/VmfParser';
@@ -43,9 +44,10 @@ async function bakeMap(mapName: string) {
         const mapData = VmfParser.parse(mapContent);
 
         // 4. Build Physics World (and Scene Meshes)
-        console.log('[BAKE] Building Scene...');
+        // Use forNavmesh: true to include CLIP brushes that create invisible collision
+        console.log('[BAKE] Building Scene (including collision geometry)...');
         const builder = new VmfWorldBuilder(scene, world);
-        builder.build(mapData);
+        builder.build(mapData, { forNavmesh: true });
         // Checking VmfWorldBuilder usage in previous file, it used `builder.build(mapData)`. 
         // Need to be careful if VmfWorldBuilder.build is async or not.
         // Assuming synchronous or simple promise.
@@ -82,8 +84,8 @@ async function bakeMap(mapName: string) {
         console.log('[BAKE] Generating NavMesh...');
         // Tuned for Source Engine dimensions (1 unit = 0.75inch = 0.01905m)
         // Player Width 32 units = 0.6m -> Radius 0.3m
-        // Doorways ~48 units = 0.9m
-        const cs = 0.1; // 10cm precision
+        // Doorways ~48 units = 0.9m - need agent radius < 0.45m to fit
+        const cs = 0.08; // 8cm precision (smaller = more accurate for tight spaces)
         const ch = 0.1;
         const result = threeToSoloNavMesh(meshes, {
             cs,
@@ -91,11 +93,11 @@ async function bakeMap(mapName: string) {
             walkableSlopeAngle: 45,
             walkableHeight: Math.ceil(2.0 / ch), // 2.0m / 0.1 = 20 voxels
             walkableClimb: Math.ceil(0.5 / ch), // 0.5m / 0.1 = 5 voxels
-            walkableRadius: Math.ceil(1.0 / cs), // 1.0m / 0.1 = 10 voxels
+            walkableRadius: Math.ceil(0.35 / cs), // 0.35m / 0.08 = ~4 voxels (fits through 0.9m doors)
             maxEdgeLen: 12,
             maxSimplificationError: 1.1,
-            minRegionArea: 8,
-            mergeRegionArea: 20,
+            minRegionArea: 4, // Reduced to keep small areas like doorways
+            mergeRegionArea: 15,
             maxVertsPerPoly: 6,
             detailSampleDist: 6,
             detailSampleMaxError: 1,
@@ -106,14 +108,24 @@ async function bakeMap(mapName: string) {
             return false;
         }
 
-        // 8. Export
-        console.log('[BAKE] Serializing...');
-        // getNavMeshData() returns Uint8Array (binary) which implies .bin extension
-        const data = exportNavMesh(result.navMesh);
+        // 8. Detect Strategic Points
+        console.log('[BAKE] Detecting strategic points...');
+        const navMeshQuery = new NavMeshQuery(result.navMesh);
+        const strategicPoints = detectStrategicPoints(meshes, result.navMesh, navMeshQuery);
 
+        // 9. Export Navmesh Binary
+        console.log('[BAKE] Serializing navmesh...');
+        const data = exportNavMesh(result.navMesh);
         fs.writeFileSync(outputPath, data);
         console.log(`[SUCCESS] Navmesh saved to: ${outputPath}`);
         console.log(`[INFO] Size: ${(data.length / 1024).toFixed(2)} KB`);
+
+        // 10. Export Tactical Data
+        const tacticalPath = outputPath.replace('.bin', '.tactical.json');
+        const tacticalData = JSON.stringify(strategicPoints, null, 2);
+        fs.writeFileSync(tacticalPath, tacticalData);
+        console.log(`[SUCCESS] Tactical data saved to: ${tacticalPath}`);
+        console.log(`[INFO] Patrol: ${strategicPoints.patrolPoints.length}, Cover: ${strategicPoints.coverSpots.length}, Choke: ${strategicPoints.chokePoints.length}, Vantage: ${strategicPoints.vantagePoints.length}`);
 
         // Clean up
         result.navMesh.destroy();

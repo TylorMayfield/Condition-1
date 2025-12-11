@@ -68,7 +68,7 @@ export const STATE_CONFIGS: Record<AIStateId, AIStateConfig> = {
     [AIStateId.Idle]: {
         id: AIStateId.Idle,
         name: 'Idle',
-        timeout: 5,
+        timeout: 2,
         timeoutTarget: AIStateId.Patrol,
         interruptible: true,
         priority: 0,
@@ -77,7 +77,7 @@ export const STATE_CONFIGS: Record<AIStateId, AIStateConfig> = {
     [AIStateId.Patrol]: {
         id: AIStateId.Patrol,
         name: 'Patrol',
-        timeout: 60,
+        timeout: 0, // No timeout - patrol continues until interrupted by combat/events
         timeoutTarget: AIStateId.Idle,
         interruptible: true,
         priority: 1,
@@ -95,7 +95,7 @@ export const STATE_CONFIGS: Record<AIStateId, AIStateConfig> = {
     [AIStateId.Alert]: {
         id: AIStateId.Alert,
         name: 'Alert',
-        timeout: 8,
+        timeout: 3,
         timeoutTarget: AIStateId.Patrol,
         interruptible: true,
         priority: 3,
