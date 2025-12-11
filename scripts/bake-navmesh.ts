@@ -85,19 +85,19 @@ async function bakeMap(mapName: string) {
         // Tuned for Source Engine dimensions (1 unit = 0.75inch = 0.01905m)
         // Player Width 32 units = 0.6m -> Radius 0.3m
         // Doorways ~48 units = 0.9m - need agent radius < 0.45m to fit
-        const cs = 0.08; // 8cm precision (smaller = more accurate for tight spaces)
+        const cs = 0.1; // Increased from 0.08 for slightly faster bake and less noise
         const ch = 0.1;
         const result = threeToSoloNavMesh(meshes, {
             cs,
             ch,
             walkableSlopeAngle: 45,
-            walkableHeight: Math.ceil(2.0 / ch), // 2.0m / 0.1 = 20 voxels
-            walkableClimb: Math.ceil(0.5 / ch), // 0.5m / 0.1 = 5 voxels
-            walkableRadius: Math.ceil(0.35 / cs), // 0.35m / 0.08 = ~4 voxels (fits through 0.9m doors)
+            walkableHeight: Math.ceil(2.0 / ch), // 2.0m height
+            walkableClimb: Math.ceil(0.5 / ch), // 0.5m climb
+            walkableRadius: Math.ceil(0.4 / cs), // 0.4m radius (Pull away from walls slightly more)
             maxEdgeLen: 12,
             maxSimplificationError: 1.1,
-            minRegionArea: 4, // Reduced to keep small areas like doorways
-            mergeRegionArea: 15,
+            minRegionArea: 50, // CRITICAL: Discard isolated areas < ~0.5m² (was 4)
+            mergeRegionArea: 20,
             maxVertsPerPoly: 6,
             detailSampleDist: 6,
             detailSampleMaxError: 1,

@@ -331,7 +331,8 @@ export class ChaseState implements IAIStateHandler {
             (ai.owner.health < ai.healthThreshold) ||
             (distance > 10 && distance < 25 && Math.random() < 0.005); // Random caution check per frame
 
-        if (shouldSeekCover) {
+        // Only seek cover if we haven't failed recently
+        if (shouldSeekCover && ai.blackboard.timeSinceLastCoverAttempt > 3.0) {
             return AIStateId.TakeCover;
         }
 
@@ -409,9 +410,12 @@ export class AttackState implements IAIStateHandler {
             return AIStateId.Chase;
         }
 
-        // Low health? Take cover
+        // Low health? Take cover (with hysteresis cooldown)
         if (ai.owner.health < ai.healthThreshold * 0.7) {
-            return AIStateId.TakeCover;
+            // Only try if we haven't failed recently (3s cooldown)
+            if (ai.blackboard.timeSinceLastCoverAttempt > 3.0) {
+                return AIStateId.TakeCover;
+            }
         }
 
         // Fire weapon
@@ -594,6 +598,7 @@ export class TakeCoverState implements IAIStateHandler {
     private inCover: boolean = false;
 
     enter(ai: EnemyAI): void {
+        ai.blackboard.recordCoverAttempt();
         this.findCover(ai);
         // TACTICAL: Walk to cover, don't sprint
         ai.movement.setRunning(false);
@@ -815,12 +820,12 @@ export class RetreatState implements IAIStateHandler {
 
     update(ai: EnemyAI, _dt: number): AIStateId | null {
         if (!this.retreatTarget) {
-            return AIStateId.TakeCover;
+            return ai.blackboard.timeSinceLastCoverAttempt > 3.0 ? AIStateId.TakeCover : AIStateId.Attack;
         }
 
         const pos = ai.getOwnerPosition();
         if (pos && pos.distanceTo(this.retreatTarget) < 2.0) {
-            return AIStateId.TakeCover;
+            return ai.blackboard.timeSinceLastCoverAttempt > 3.0 ? AIStateId.TakeCover : AIStateId.Attack;
         }
 
         ai.movement.moveTo(this.retreatTarget);

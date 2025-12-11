@@ -111,15 +111,12 @@ export class RecastNavigation {
             cs,
             ch,
             walkableSlopeAngle: 45,
-            walkableHeight: Math.ceil(2.0 / ch), // ~10 voxels
-            walkableClimb: Math.ceil(0.6 / ch), // ~3 voxels
-            // Increase radius to prevent corner snagging.
-            // Physics Radius 0.4m. Old Walkable 0.6m (3 voxels). Gap 0.2m.
-            // New Walkable 1.0m (5 voxels). Gap 0.6m for better clearance.
-            walkableRadius: Math.ceil(1.0 / cs),
+            walkableHeight: Math.ceil(2.0 / ch),
+            walkableClimb: Math.ceil(0.5 / ch),
+            walkableRadius: Math.ceil(0.4 / cs), // Match baking radius logic (0.4m)
             maxEdgeLen: 12,
-            maxSimplificationError: 1.1, // Reduced from 1.3 to tighten mesh to walls
-            minRegionArea: 8,
+            maxSimplificationError: 1.1,
+            minRegionArea: 25, // Increased to filter noise (~1m²)
             mergeRegionArea: 20,
             maxVertsPerPoly: 6,
             detailSampleDist: 6,

@@ -53,6 +53,9 @@ export class AIBlackboard {
     /** Patrol waypoints queue */
     public patrolQueue: THREE.Vector3[] = [];
 
+    /** Time since we last ATTEMPTED to find cover (prevents thrashing) */
+    public timeSinceLastCoverAttempt: number = Infinity;
+
     // === State Tracking ===
     /** How long we've been in current state */
     public stateTime: number = 0;
@@ -82,6 +85,8 @@ export class AIBlackboard {
 
         // Decay recent transitions counter
         this.recentTransitions = Math.max(0, this.recentTransitions - dt * 0.5);
+
+        this.timeSinceLastCoverAttempt += dt;
 
         // Clean old sounds (older than 10 seconds)
         const now = Date.now();
@@ -187,6 +192,10 @@ export class AIBlackboard {
         this.coverPosition = null;
         this.coverValid = false;
         this.timeInCover = 0;
+    }
+
+    public recordCoverAttempt(): void {
+        this.timeSinceLastCoverAttempt = 0;
     }
 
     /**

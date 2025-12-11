@@ -25,6 +25,9 @@ export class Enemy extends GameObject {
     public score: number = 0;
     public damageDealt: number = 0; // Track damage this bot has dealt
 
+    // Animation State
+    public aimWeight: number = 0; // 0 = Relaxed, 1 = Aiming
+
     private static BOT_NAMES = [
         "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon",
         "Wolf", "Bear", "Tiger", "Fox", "Ghost", "Shadow",

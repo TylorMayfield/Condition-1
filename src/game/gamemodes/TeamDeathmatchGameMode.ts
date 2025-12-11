@@ -34,6 +34,9 @@ export class TeamDeathmatchGameMode extends GameMode {
         'OpFor': 0
     };
 
+    /** Stores cumulative damage/score by participant ID (Name) throughout the match */
+    private persistentScores: Map<string, number> = new Map();
+
     // Round configuration
     public roundLimit: number = 5; // First to 5 wins
     public botsPerTeam: number = 5; // 5 vs 5 target
@@ -68,6 +71,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         console.log("Initializing Round-Based Team Deathmatch");
         this.roundWins['TaskForce'] = 0;
         this.roundWins['OpFor'] = 0;
+        this.persistentScores.clear();
         this.roundNumber = 0;
         this.isGameOver = false;
 
@@ -138,7 +142,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         if (this.game.player) {
             if (!this.isSpectatorOnly) {
                 const ctSpawns = this.game.availableSpawns?.CT || [];
-                const spawnPos = this.getSafeSpawnPosition(ctSpawns);
+                const spawnPos = this.getSafeSpawnPosition(ctSpawns, false); // No jitter for player preferred
                 this.game.player.respawn(spawnPos);
                 this.taskForceAlive.add(this.game.player);
                 this.isSpectating = false;
@@ -160,12 +164,16 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Register Player if playing
         if (this.game.player && !this.isSpectatorOnly) {
+            // Restore player score
+            const playerScore = this.persistentScores.get('player') || 0;
+            this.game.player.damageDealt = playerScore;
+
             this.participants.push({
                 id: 'player',
                 name: 'You',
                 team: 'TaskForce',
                 status: 'Alive',
-                score: 0,
+                score: playerScore,
                 objectRef: this.game.player
             });
         }
@@ -177,8 +185,13 @@ export class TeamDeathmatchGameMode extends GameMode {
         const ctSpawns = this.game.availableSpawns?.CT || [];
 
         for (let i = 0; i < teammateCount; i++) {
-            const pos = this.getSafeSpawnPosition(ctSpawns);
-            const bot = new Enemy(this.game, pos, 'Player'); // 'Player' team = TaskForce
+            const pos = this.getSafeSpawnPosition(ctSpawns, true); // Jitter enabled
+            const name = `TaskForce ${i + 1}`; // Stable Name: "TaskForce 1", "TaskForce 2"...
+            const bot = new Enemy(this.game, pos, 'Player', name); // 'Player' team = TaskForce
+
+            // Restore Score
+            bot.damageDealt = this.persistentScores.get(name) || 0;
+
             this.game.addGameObject(bot);
             this.taskForceAlive.add(bot);
 
@@ -187,7 +200,7 @@ export class TeamDeathmatchGameMode extends GameMode {
                 name: bot.name,
                 team: 'TaskForce',
                 status: 'Alive',
-                score: 0,
+                score: bot.damageDealt,
                 objectRef: bot
             });
         }
@@ -196,8 +209,13 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Spawn full team
         const tSpawns = this.game.availableSpawns?.T || [];
         for (let i = 0; i < this.botsPerTeam; i++) {
-            const pos = this.getSpawnPosition(tSpawns);
-            const bot = new Enemy(this.game, pos, 'OpFor');
+            const pos = this.getSafeSpawnPosition(tSpawns, true); // Jitter enabled
+            const name = `OpFor ${i + 1}`; // Stable Name: "OpFor 1", "OpFor 2"...
+            const bot = new Enemy(this.game, pos, 'OpFor', name);
+
+            // Restore Score
+            bot.damageDealt = this.persistentScores.get(name) || 0;
+
             this.game.addGameObject(bot);
             this.opForAlive.add(bot);
 
@@ -206,7 +224,7 @@ export class TeamDeathmatchGameMode extends GameMode {
                 name: bot.name,
                 team: 'OpFor',
                 status: 'Alive',
-                score: 0,
+                score: bot.damageDealt,
                 objectRef: bot
             });
         }
@@ -220,22 +238,68 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.spectatorController.setTargets(allBots as GameObject[]);
     }
 
-    private getSpawnPosition(spawns: THREE.Vector3[]): THREE.Vector3 {
-        if (spawns.length > 0) {
-            const pos = spawns[Math.floor(Math.random() * spawns.length)].clone();
-            pos.x += (Math.random() - 0.5) * 5;
-            pos.z += (Math.random() - 0.5) * 5;
-            return pos;
+    private getSafeSpawnPosition(spawns: THREE.Vector3[], applyJitter: boolean = false): THREE.Vector3 {
+        // Fallback checks
+        if (!spawns || spawns.length === 0) return new THREE.Vector3(0, 10, 0);
+
+        // Try to find a spawn point that doesn't collide with existing bodies AND is on NavMesh
+        // Shuffle spawns to randomize
+        const shuffled = [...spawns].sort(() => Math.random() - 0.5);
+
+        for (const spawn of shuffled) {
+            let candidate = spawn.clone();
+
+            // Apply Jitter if requested
+            if (applyJitter) {
+                // Jitter up to 2.5m radius
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 2.5;
+                candidate.x += Math.sin(angle) * dist;
+                candidate.z += Math.cos(angle) * dist;
+            }
+
+            // 1. Snap to NavMesh (CRITICAL FIX)
+            // Even if we don't jitter, the map spawn point might be slightly off.
+            // If we did jitter, we definitely need to snap back to valid floor.
+            if (this.game.recastNav) {
+                const snapped = this.game.recastNav.closestPointTo(candidate);
+                if (snapped) {
+                    candidate = snapped;
+                } else {
+                    // If jitter pushed it off mesh entirely, skip this attempt
+                    if (applyJitter) continue;
+                }
+            }
+
+            // 2. Simple overlap check
+            // Check if any body is within 1.0m of spawn
+            let blocked = false;
+            for (const body of this.game.world.bodies) {
+                const dist = body.position.distanceTo(new CANNON.Vec3(candidate.x, candidate.y, candidate.z));
+                if (dist < 1.0) { // 1m radius
+                    blocked = true;
+                    break;
+                }
+            }
+
+            if (!blocked) {
+                return candidate;
+            }
         }
 
-        // Fallback
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 20 + Math.random() * 20;
-        return new THREE.Vector3(
-            Math.sin(angle) * radius,
-            1,
-            Math.cos(angle) * radius
-        );
+        // If all blocked, fallback to first random but ensure it's on NavMesh
+        console.warn("All spawn points blocked! Picking best available.");
+
+        // Try to find ANY valid point in the list, ignoring entity collision
+        for (const spawn of shuffled) {
+            if (this.game.recastNav) {
+                const snapped = this.game.recastNav.closestPointTo(spawn);
+                if (snapped) return snapped;
+            }
+        }
+
+        // Absolute fallback
+        return shuffled[0].clone();
     }
 
     private checkRoundEnd(): void {
@@ -301,6 +365,22 @@ export class TeamDeathmatchGameMode extends GameMode {
     }
 
     private cleanupRound(): void {
+        // Save current scores before cleanup
+        for (const p of this.participants) {
+            if (p.objectRef) {
+                // Update score one last time from object to participant
+                if (p.objectRef instanceof Enemy) {
+                    p.score = p.objectRef.damageDealt;
+                } else if (p.objectRef === this.game.player) {
+                    p.score = this.game.player.damageDealt;
+                }
+            }
+            // Save to persistent map
+            if (p.id) {
+                this.persistentScores.set(p.id, p.score);
+            }
+        }
+
         // Remove all enemy objects
         // Use constructor name check to catch HMR ghosts where instanceof fails
         const toRemove = this.game.getGameObjects().filter(go =>
@@ -317,7 +397,11 @@ export class TeamDeathmatchGameMode extends GameMode {
             }
         });
 
-        // Reset player health for next round
+        // Reset player health for next round (but NOT damageDealt if using persistent logic above)
+        // Wait, 'spawnTeams' sets damageDealt from persistence. So it's safe to not reset it here, 
+        // OR we can reset it properties on the object, but we are about to re-spawn anyway.
+        // Actually, for the player (who isn't destroyed), we should probably update their `damageDealt` 
+        // in startNewRound when we reload it. 
         if (this.game.player) {
             this.game.player.health = 100;
         }
@@ -375,12 +459,7 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Update spectator targets if a potential target died
         if (this.isSpectating) {
-            const allBots = [...this.taskForceAlive, ...this.opForAlive]
-                .filter(go => (go instanceof Enemy) || (go === this.game.player && this.game.player.health > 0)); // Filter alive
-
-            // We cast here because we know Enemy and Player have health/isDead logic generally, 
-            // but if we are strict we should use any or custom interface.
-            this.spectatorController.setTargets(allBots as GameObject[]);
+            this.spectatorController.setTargets(this.getSpectatorTargets());
         }
     }
 
@@ -421,51 +500,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         return data;
     }
 
-    private getSafeSpawnPosition(spawns: THREE.Vector3[]): THREE.Vector3 {
-        // Fallback checks
-        if (!spawns || spawns.length === 0) return new THREE.Vector3(0, 10, 0);
 
-        // Try to find a spawn point that doesn't collide with existing bodies AND is on NavMesh
-        // Shuffle spawns to randomize
-        const shuffled = [...spawns].sort(() => Math.random() - 0.5);
-
-        for (const spawn of shuffled) {
-            // 1. Check if point is on valid NavMesh (prevents spawning inside walls/void)
-            // isOnNavMesh checks against a 1x2x1 box extent
-            if (this.game.recastNav && !this.game.recastNav.isOnNavMesh(spawn)) {
-                continue; // Skip invalid positions
-            }
-
-            // 2. Simple overlap check
-            // Check if any body is within 1.0m of spawn
-            let blocked = false;
-            for (const body of this.game.world.bodies) {
-                const dist = body.position.distanceTo(new CANNON.Vec3(spawn.x, spawn.y, spawn.z));
-                if (dist < 1.0) { // 1m radius
-                    blocked = true;
-                    break;
-                }
-            }
-
-            if (!blocked) {
-                return spawn.clone();
-            }
-        }
-
-        // If all blocked, fallback to first random but ensure it's on NavMesh?
-        // Or just pick random and hope for best (better than freezing)
-        console.warn("All spawn points blocked! Picking random.");
-
-        // Try to find ANY valid point in the list, ignoring entity collision
-        for (const spawn of shuffled) {
-            if (this.game.recastNav && this.game.recastNav.isOnNavMesh(spawn)) {
-                return spawn.clone();
-            }
-        }
-
-        // Absolute fallback
-        return shuffled[0].clone();
-    }
 
     private enableSpectatorMode(): void {
         this.isSpectating = true;
@@ -473,24 +508,36 @@ export class TeamDeathmatchGameMode extends GameMode {
             this.game.player.isSpectating = true;
         }
 
-        // Update targets
-        // Re-gathering targets from sets
+        this.spectatorController.setTargets(this.getSpectatorTargets());
+
+        console.log("Spectator Mode Enabled");
+    }
+
+    private getSpectatorTargets(): GameObject[] {
         const targets: GameObject[] = [];
         this.taskForceAlive.forEach(t => targets.push(t));
         this.opForAlive.forEach(t => targets.push(t));
 
-        // Filter out the main player if they are the one enabling spectate (e.g. they died)
-        // Also ensure they are not dead.
-        const validTargets = targets.filter(t => {
+        const myTeam = this.game.player?.team || 'Player';
+
+        // 1. Try to find living teammates
+        const teammates = targets.filter(t => {
             if (t === this.game.player) return false;
-            // Check alive status safely
+            if (t instanceof Enemy && t.health <= 0) return false;
+            if ((t as any).isDead) return false;
+            return t.team === myTeam;
+        });
+
+        if (teammates.length > 0) {
+            return teammates;
+        }
+
+        // 2. Fallback: Spectate anyone alive (Enemies) if all teammates are dead
+        return targets.filter(t => {
+            if (t === this.game.player) return false;
             if (t instanceof Enemy && t.health <= 0) return false;
             if ((t as any).isDead) return false;
             return true;
         });
-
-        this.spectatorController.setTargets(validTargets);
-
-        console.log("Spectator Mode Enabled");
     }
 }
