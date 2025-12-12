@@ -30,6 +30,11 @@ export class Enemy extends GameObject {
 
     // Animation State
     public aimWeight: number = 0; // 0 = Relaxed, 1 = Aiming
+    public leanAmount: number = 0; // -1 (Left) to 1 (Right)
+
+    // Threat Tracking
+    public isUnderFire: boolean = false;
+    private underFireTimer: number = 0;
 
     private static BOT_NAMES = [
         "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon",
@@ -233,6 +238,10 @@ export class Enemy extends GameObject {
             return;
         }
 
+        // Mark as under fire
+        this.isUnderFire = true;
+        this.underFireTimer = 2.0; // 2 seconds of under fire status
+
         // Apply Knockback
         if (this.body) {
             const impulse = new CANNON.Vec3(forceDir.x * forceMagnitude, forceDir.y * forceMagnitude, forceDir.z * forceMagnitude);
@@ -347,6 +356,13 @@ export class Enemy extends GameObject {
             this.grenadeCooldown -= dt;
         }
 
+        if (this.underFireTimer > 0) {
+            this.underFireTimer -= dt;
+            if (this.underFireTimer <= 0) {
+                this.isUnderFire = false;
+            }
+        }
+
         this.animate(dt);
     }
 
@@ -424,8 +440,24 @@ export class Enemy extends GameObject {
             this.rightArm.rotation.x = walkCycle * 0.4;
 
             // Body Bob
-            this.bodyMesh.position.y = 0.6 + Math.abs(cosCycle) * 0.05;
             this.head.position.y = 1.25 + Math.abs(cosCycle) * 0.05;
+        }
+
+        // Apply Leaning (Upper Body Only)
+        if (Math.abs(this.leanAmount) > 0.01) {
+             const leanAngle = -this.leanAmount * 0.5; // Max ~30 degrees
+             
+             // Rotate body around Z
+             this.bodyMesh.rotation.z += leanAngle;
+             // Head follows
+             this.head.rotation.z += leanAngle;
+             // Arms follow
+             this.leftArm.rotation.z += leanAngle;
+             this.rightArm.rotation.z += leanAngle;
+
+             // Visual Offset to simulate leaning out
+             this.head.position.x += this.leanAmount * 0.3;
+             this.bodyMesh.position.x += this.leanAmount * 0.15;
         }
 
         // Posture Overrides based on State
@@ -536,6 +568,17 @@ export class Enemy extends GameObject {
             if (this.body) {
                 this.body.velocity.y = 5; // Jump Force
             }
+        }
+    }
+
+    public lean(amount: number) {
+        // -1 (Left) to 1 (Right)
+        this.leanAmount = THREE.MathUtils.clamp(amount, -1, 1);
+        
+        if (this.bodyMesh && this.head) {
+             // Visual Lean: Rotate torso and head around Z axis
+             // Note: animate() resets rotations every frame, so we need to apply this IN animate() or ensure animate() respects it.
+             // We will modify animate() to apply this offset.
         }
     }
 

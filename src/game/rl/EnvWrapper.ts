@@ -33,6 +33,27 @@ export interface Action {
     throwGrenade: number; // 0 or 1
     jump: number; // 0 or 1
     sprint: number; // 0 or 1
+    lean: number;   // -1 .. 1 (left/right)
+}
+
+/**
+ * Observation type – a flat Float32Array or object that can be fed to the policy.
+ */
+export interface Observation {
+    position: number[]; // [x, y, z]
+    velocity: number[]; // [vx, vy, vz]
+    health: number;
+    armor: number;
+    weaponId: number;
+    ammo: number;
+    crouch: number; // 0 or 1
+    grenades: number;
+    team: number; // 0 = TaskForce, 1 = OpFor
+    visionGrid: number[]; // flattened binary grid (e.g., 32*32)
+    
+    // New Fields
+    coverDistance: number; // Distance to nearest cover (normalized)
+    isUnderFire: number;   // 0 or 1
 }
 
 /**
@@ -54,6 +75,8 @@ export function buildObservationFromBot(bot: Enemy): Observation {
         grenades: 0,
         team: bot.team === "TaskForce" ? 0 : 1,
         visionGrid: new Array(32 * 32).fill(0),
+        coverDistance: 1, // Default (no cover)
+        isUnderFire: 0
     };
 }
 

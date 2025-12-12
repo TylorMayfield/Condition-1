@@ -47,6 +47,9 @@ export class ScriptedPolicy implements IRLPolicy {
             crouchToggle: isLowHealth && Math.random() > 0.9 ? 1 : 0,
             // Use grenade occasionally
             throwGrenade: hasEnemyInSight && obs.grenades > 0 && Math.random() > 0.95 ? 1 : 0,
+            sprint: 0,
+            jump: 0,
+            lean: 0
         };
     }
 
@@ -124,6 +127,9 @@ export class ONNXPolicy implements IRLPolicy {
             fire: data[4] > 0.5 ? 1 : 0,
             crouchToggle: data[5] > 0.5 ? 1 : 0,
             throwGrenade: data[6] > 0.5 ? 1 : 0,
+            sprint: 0, // Not trained yet
+            jump: 0,   // Not trained yet
+            lean: 0    // Not trained yet
         };
     }
 }
