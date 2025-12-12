@@ -28,7 +28,7 @@ export class BallisticsManager {
         this.game = game;
         this.raycaster = new THREE.Raycaster();
         this.raycaster.far = 1000; // Sensible max distance
-        
+
         // Init shared resources
         this.bulletGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.2);
         this.bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
@@ -39,7 +39,7 @@ export class BallisticsManager {
 
         // Try to reuse from pool
         const inactiveIdx = this.projectilePool.findIndex(px => !px.active);
-        
+
         if (inactiveIdx >= 0) {
             p = this.projectilePool[inactiveIdx];
             // Remove from pool list to active list implies logic change, 
@@ -68,7 +68,7 @@ export class BallisticsManager {
         p.position.copy(origin);
         p.mesh.position.copy(origin);
         p.mesh.lookAt(origin.clone().add(direction));
-        
+
         p.velocity.copy(direction).multiplyScalar(speed);
         p.lifeTime = 5.0;
         p.damage = damage;
@@ -105,13 +105,13 @@ export class BallisticsManager {
 
             const startPos = p.position.clone(); // Optimization: Could reuse a temp vector if strictly single-threaded
             const moveStep = p.velocity.clone().multiplyScalar(dt); // Optimization: reuse temp
-            const endPos = startPos.clone().add(moveStep); 
+            const endPos = startPos.clone().add(moveStep);
 
             // Raycast for Hit Detection (Continuous)
             // Reuse raycaster
             this.raycaster.set(startPos, moveStep.clone().normalize());
             this.raycaster.far = moveStep.length();
-            
+
             // Fix: Raycasting against Sprites requires camera to be set
             this.raycaster.camera = this.game.camera;
 
@@ -125,34 +125,41 @@ export class BallisticsManager {
             if (intersects.length > 0) {
                 // Find first valid hit
                 for (const intersect of intersects) {
-                     let obj: any = intersect.object;
-                     let ValidHit = true;
-                     
-                     // Ignore Owner check (traverse up to check if child of owner)
-                     // If owner is defined, check hierarchy
-                     if (p.owner) {
-                         let tempObj = obj;
-                         while(tempObj) {
-                             if (tempObj === p.owner) { 
-                                 ValidHit = false; 
-                                 break; 
-                             }
-                             // Also check if owner has this child (for groups)
-                             if (p.owner.children && Array.isArray(p.owner.children) && p.owner.children.includes(tempObj)) {
-                                 ValidHit = false;
-                                 break;
-                             }
-                             tempObj = tempObj.parent;
-                         }
-                     }
-                     
-                     if (!ValidHit) continue; 
-                     
-                     // If valid hit found
-                     hitSomething = true;
-                     this.handleHit(intersect, p);
-                     this.recycleProjectile(i);
-                     break;
+                    let obj: any = intersect.object;
+                    let ValidHit = true;
+
+                    // Ignore Owner check (traverse up to check if child of owner)
+                    // If owner is defined, check hierarchy
+                    if (p.owner) {
+                        let tempObj = obj;
+                        while (tempObj) {
+                            // Check for direct object equality (if owner is Mesh)
+                            if (tempObj === p.owner) {
+                                ValidHit = false;
+                                break;
+                            }
+                            // Check for GameObject reference (if owner is GameObject)
+                            if (tempObj.userData && tempObj.userData.gameObject === p.owner) {
+                                ValidHit = false;
+                                break;
+                            }
+
+                            // Also check if owner has this child (for groups)
+                            if (p.owner.children && Array.isArray(p.owner.children) && p.owner.children.includes(tempObj)) {
+                                ValidHit = false;
+                                break;
+                            }
+                            tempObj = tempObj.parent;
+                        }
+                    }
+
+                    if (!ValidHit) continue;
+
+                    // If valid hit found
+                    hitSomething = true;
+                    this.handleHit(intersect, p);
+                    this.recycleProjectile(i);
+                    break;
                 }
             }
 
@@ -185,11 +192,11 @@ export class BallisticsManager {
 
         // Check Legacy Lookup (Slow) if optimization missing
         if (!foundGO) {
-             obj = hit.object;
-             const allGOs = this.game.getGameObjects();
-             // Limited depth search to avoid infinite loops or massive cost
-             let depth = 0;
-             while (obj && depth < 5) {
+            obj = hit.object;
+            const allGOs = this.game.getGameObjects();
+            // Limited depth search to avoid infinite loops or massive cost
+            let depth = 0;
+            while (obj && depth < 5) {
                 const found = allGOs.find(go => {
                     if (!go.mesh) return false;
                     if (go.mesh === obj) return true;
@@ -202,7 +209,7 @@ export class BallisticsManager {
                 }
                 obj = obj.parent;
                 depth++;
-             }
+            }
         }
 
         if (foundGO) {
@@ -232,14 +239,14 @@ export class BallisticsManager {
 
     private recycleProjectile(index: number) {
         const p = this.projectiles[index];
-        
+
         // Hide and remove from scene (or keep in scene but invisible? removing is safer for raycasts)
         this.game.scene.remove(p.mesh);
         p.active = false;
-        
+
         // Remove from active list
         this.projectiles.splice(index, 1);
-        
+
         // Add to pool
         this.projectilePool.push(p);
     }

@@ -56,6 +56,8 @@ export class Player extends GameObject {
         });
         this.mesh = new THREE.Mesh(hitboxGeo, hitboxMat);
         this.mesh.name = 'hitbox_body'; // Player is treated as body shot for balancing
+        // CRITICAL: Link mesh to this GameObject so BallisticsManager can ignore self-hits
+        this.mesh.userData.gameObject = this;
         this.game.scene.add(this.mesh);
     }
 

@@ -120,7 +120,9 @@ export class TeamDeathmatchGameMode extends GameMode {
         // If round is not active and not in countdown, we're in between rounds
         if (!this.roundActive) {
             this.roundEndTimer += dt;
-            if (this.roundEndTimer >= this.roundEndDelay) {
+            // Immediate start for first round (Round 0 -> 1)
+            // Otherwise wait for delay (between rounds)
+            if (this.roundNumber === 0 || this.roundEndTimer >= this.roundEndDelay) {
                 this.startNewRound();
             }
             return;
@@ -626,7 +628,9 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Allow movement only if round is active (and not just starting/counting down)
         // If countdown is active, block.
         // If round is not active (between rounds), block.
-        if (this.countdownActive) return false;
+        // Grace period: Allow movement if countdown is basically done (< 0.5s).
+        // This prevents the "stuck" feeling if there's a frame delay between visual 0 and logic unlock.
+        if (this.countdownActive && this.countdownTimer > 0.5) return false;
 
         // Also block if we haven't started round 1 yet (startup)
         if (this.roundNumber === 0 && !this.roundActive) return false;
