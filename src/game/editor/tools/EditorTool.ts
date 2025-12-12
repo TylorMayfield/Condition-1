@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 
 /**
  * Base interface for editor tools.

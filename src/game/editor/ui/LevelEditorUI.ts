@@ -24,8 +24,9 @@ export class LevelEditorUI {
         container.style.width = '100%';
         container.style.height = '100%';
         container.style.display = 'none';
-        container.style.backgroundColor = '#222';
+        container.style.backgroundColor = 'transparent'; // Transparent to show canvas
         container.style.fontFamily = 'Segoe UI, sans-serif';
+        container.style.pointerEvents = 'none'; // Allow click-through except on children
         container.id = 'level-editor-ui';
 
         // Main Layout: Sidebar + Viewport Grid
@@ -40,6 +41,7 @@ export class LevelEditorUI {
         sidebar.style.display = 'flex';
         sidebar.style.flexDirection = 'column';
         sidebar.style.padding = '10px';
+        sidebar.style.pointerEvents = 'auto'; // Sidebar should capture events
         container.appendChild(sidebar);
 
         // Sidebar Content (Tools)
@@ -52,7 +54,8 @@ export class LevelEditorUI {
         grid.style.gridTemplateColumns = '1fr 1fr';
         grid.style.gridTemplateRows = '1fr 1fr';
         grid.style.gap = '2px';
-        grid.style.backgroundColor = '#444'; // Gap color
+        grid.style.backgroundColor = '#333'; // Gap color (visible between viewports)
+        grid.style.pointerEvents = 'auto'; // Grid area captures events
         container.appendChild(grid);
 
         // Create Viewports
@@ -71,8 +74,13 @@ export class LevelEditorUI {
     private createViewport(parent: HTMLElement, label: string): HTMLDivElement {
         const vp = document.createElement('div');
         vp.style.position = 'relative';
-        vp.style.backgroundColor = '#111';
+        vp.style.width = '100%';
+        vp.style.height = '100%';
+        vp.style.minWidth = '0';
+        vp.style.minHeight = '0';
+        vp.style.backgroundColor = 'transparent'; // Must be transparent to see the canvas
         vp.style.overflow = 'hidden';
+        vp.style.pointerEvents = 'auto'; // Ensure mouse events are captured
 
         // Label
         const labelEl = document.createElement('div');
@@ -83,6 +91,7 @@ export class LevelEditorUI {
         labelEl.style.color = '#888';
         labelEl.style.fontSize = '12px';
         labelEl.style.pointerEvents = 'none';
+        labelEl.style.zIndex = '10';
         vp.appendChild(labelEl);
 
         parent.appendChild(vp);

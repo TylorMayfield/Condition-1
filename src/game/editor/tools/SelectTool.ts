@@ -7,40 +7,40 @@ import { EditorBrush } from '../EditorBrush';
 export class SelectTool implements EditorTool {
     public name: string = 'Select';
     private editor: LevelEditor;
-    private controls: TransformControls;
+    private controls: TransformControls | null = null;
     private selectedBrush: EditorBrush | null = null;
 
     constructor(editor: LevelEditor) {
         this.editor = editor;
+        // Controls created lazily on first selection to avoid bundler issues
+    }
 
-        // Initialize Gizmo
-        this.controls = new TransformControls(this.editor.getGame().camera, this.editor.getGame().renderer.domElement);
-        this.controls.addEventListener('dragging-changed', (_event: any) => {
-            // Disable camera movement when dragging gizmo
-            // We can hack this by checking if we are using the gizmo
-            // EditorCamera consumes RightClick only, Gizmo is LeftClick. Safe.
-        });
-
-        this.controls.addEventListener('change', () => {
-            // Update brush logical data when mesh changes
-            if (this.selectedBrush) {
-                // Determine if it was scaled or moved
-                // Update size logic if scaled? 
-                // EditorBrush.resize updates scale.
-                // If gizmo scales mesh, we should sync back.
-            }
-        });
+    private ensureControls(): TransformControls {
+        if (!this.controls) {
+            const game = this.editor.getGame();
+            this.controls = new TransformControls(game.camera, game.renderer.domElement);
+            this.controls.addEventListener('dragging-changed', (_event: any) => {
+                // Disable camera movement when dragging gizmo
+            });
+            this.controls.addEventListener('change', () => {
+                // Update brush logical data when mesh changes
+            });
+            // Manually add to scene bypassing the instanceof check that fails with multiple THREE instances
+            const scene = game.scene;
+            scene.children.push(this.controls as any);
+            (this.controls as any).parent = scene;
+        }
+        return this.controls;
     }
 
     public activate(): void {
         console.log('Select Tool Activated');
-        this.editor.getGame().scene.add(this.controls as unknown as THREE.Object3D);
+        // Controls are created lazily on first selection
     }
 
     public deactivate(): void {
         this.deselect();
-        this.controls.detach();
-        this.editor.getGame().scene.remove(this.controls as unknown as THREE.Object3D);
+        // Controls persist for reuse when tool is reactivated
     }
 
     public update(_dt: number): void {
@@ -81,7 +81,8 @@ export class SelectTool implements EditorTool {
         this.deselect();
         this.selectedBrush = brush;
         this.selectedBrush.setSelected(true);
-        this.controls.attach(this.selectedBrush.mesh);
+        const controls = this.ensureControls();
+        controls.attach(this.selectedBrush.mesh);
     }
 
     private deselect(): void {
@@ -89,7 +90,7 @@ export class SelectTool implements EditorTool {
             this.selectedBrush.setSelected(false);
             this.selectedBrush = null;
         }
-        this.controls.detach();
+        this.controls?.detach();
     }
 
     public onMouseUp(_event: MouseEvent, _camera: THREE.Camera, _ndc: THREE.Vector2): void {
@@ -106,8 +107,8 @@ export class SelectTool implements EditorTool {
             }
         }
         // Switch modes
-        if (event.code === 'KeyT') this.controls.setMode('translate');
-        if (event.code === 'KeyR') this.controls.setMode('rotate');
-        if (event.code === 'KeyY') this.controls.setMode('scale');
+        if (event.code === 'KeyT') this.controls?.setMode('translate');
+        if (event.code === 'KeyR') this.controls?.setMode('rotate');
+        if (event.code === 'KeyY') this.controls?.setMode('scale');
     }
 }

@@ -98,15 +98,11 @@ export class BlockTool implements EditorTool {
         // No-op
     }
 
-    private getGridIntersection(event: MouseEvent): THREE.Vector3 | null {
+    private getGridIntersection(camera: THREE.Camera, ndc: THREE.Vector2): THREE.Vector3 | null {
         const raycaster = new THREE.Raycaster();
-
-        // Use View3D for reference since tools allow dragging outside
-        // Ideal: Use the viewport that started the drag, but we scope to 3D for now.
-        const ndc = this.editor.getNDC(this.editor.ui.view3d, event);
         const mouse = new THREE.Vector2(ndc.x, ndc.y);
 
-        raycaster.setFromCamera(mouse, this.editor.getGame().camera);
+        raycaster.setFromCamera(mouse, camera);
 
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const target = new THREE.Vector3();

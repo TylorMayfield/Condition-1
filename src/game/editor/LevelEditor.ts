@@ -88,17 +88,17 @@ export class LevelEditor {
         // Initialize Helpers
         this.helperScene = new THREE.Scene();
 
-        // Top View Grid (XZ plane - Default)
-        this.gridXZ = new THREE.GridHelper(200, 200, 0x555555, 0x333333);
+        // Top View Grid (XZ plane - Default) - Bright colors for visibility
+        this.gridXZ = new THREE.GridHelper(200, 200, 0x00ff00, 0x444444);
         this.helperScene.add(this.gridXZ);
 
         // Front View Grid (XY plane)
-        this.gridXY = new THREE.GridHelper(200, 200, 0x555555, 0x333333);
+        this.gridXY = new THREE.GridHelper(200, 200, 0x00ff00, 0x444444);
         this.gridXY.rotation.x = Math.PI / 2;
         this.helperScene.add(this.gridXY);
 
         // Side View Grid (ZY plane)
-        this.gridZY = new THREE.GridHelper(200, 200, 0x555555, 0x333333);
+        this.gridZY = new THREE.GridHelper(200, 200, 0x00ff00, 0x444444);
         this.gridZY.rotation.z = Math.PI / 2;
         this.helperScene.add(this.gridZY);
 
@@ -274,19 +274,30 @@ export class LevelEditor {
         renderer.autoClear = false; // Important for overlay
 
         // Get Screen Coordinates of the view
+        // Get Screen Coordinates of the view
         const rect = container.getBoundingClientRect();
 
-        // Convert to WebGL coordinates (Y-up)
-        // windowY is top-down. glY is bottom-up.
-        const width = rect.width;
-        const height = rect.height;
-        const left = rect.left;
-        const bottom = window.innerHeight - rect.bottom;
+        // Convert to WebGL coordinates (Y-up) with DPR and rounding
+        const dpr = renderer.getPixelRatio();
+        const left = Math.floor(rect.left * dpr);
+        const bottom = Math.max(0, Math.floor((window.innerHeight - rect.bottom) * dpr));
+        const width = Math.floor(rect.width * dpr);
+        const height = Math.floor(rect.height * dpr);
 
-        if (width <= 0 || height <= 0) return;
+        if (width <= 0 || height <= 0) {
+            console.warn('Skipping renderView: invalid dims', width, height);
+            return;
+        }
 
         renderer.setViewport(left, bottom, width, height);
         renderer.setScissor(left, bottom, width, height);
+
+        // DEBUG: Force Top view to be Red to verify Scissor works
+        if (container === this.ui.viewTop) {
+            renderer.setClearColor(0x330000, 1);
+            renderer.clearColor();
+        }
+
 
         // Update Ortho Camera Aspect
         if (camera instanceof THREE.OrthographicCamera) {
@@ -386,7 +397,7 @@ export class LevelEditor {
         }
 
         // Calculate NDC
-        const ndc = this.ui.getNDC(viewport, e);
+        const ndc = this.getNDC(viewport, e);
         return { camera, ndc, viewport };
     }
 
@@ -414,7 +425,7 @@ export class LevelEditor {
         // Or check where mouse is NOW? 
         // Tools usually care about where drag ENDS relative to START?
         // Let's use current mouse position relative to START viewport for consistency
-        const ndc = this.ui.getNDC(viewport, e);
+        const ndc = this.getNDC(viewport, e);
 
         if (this.currentTool) this.currentTool.onMouseUp(e, camera, ndc);
 
@@ -436,7 +447,7 @@ export class LevelEditor {
             viewport = ctx.viewport;
         }
 
-        const ndc = this.ui.getNDC(viewport!, e); // bang ok because fallback exists
+        const ndc = this.getNDC(viewport!, e); // bang ok because fallback exists
         if (this.currentTool) this.currentTool.onMouseMove(e, camera!, ndc);
     }
 
