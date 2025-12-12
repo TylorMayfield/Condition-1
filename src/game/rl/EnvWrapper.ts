@@ -31,6 +31,8 @@ export interface Action {
     fire: number;  // 0 or 1
     crouchToggle: number; // 0 or 1
     throwGrenade: number; // 0 or 1
+    jump: number; // 0 or 1
+    sprint: number; // 0 or 1
 }
 
 /**

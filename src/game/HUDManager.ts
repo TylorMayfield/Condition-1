@@ -138,8 +138,9 @@ export class HUDManager {
             this.roundTimerDisplay = document.createElement('div');
             this.roundTimerDisplay.style.position = 'absolute';
             this.roundTimerDisplay.style.top = '20px';
-            this.roundTimerDisplay.style.left = '50%';
-            this.roundTimerDisplay.style.transform = 'translateX(-50%)';
+            this.roundTimerDisplay.style.left = 'auto';
+            this.roundTimerDisplay.style.right = '20px';
+            this.roundTimerDisplay.style.transform = 'none';
             this.roundTimerDisplay.style.fontFamily = "'Segoe UI', monospace";
             this.roundTimerDisplay.style.fontSize = '28px';
             this.roundTimerDisplay.style.fontWeight = 'bold';

@@ -25,6 +25,8 @@ export class MenuSystem {
         'de_train_d',
         'de_chateau_d',
         'cs_office_d',
+        'cs_italy_d',
+        'de_inferno_d',
         'window_test'
     ];
 

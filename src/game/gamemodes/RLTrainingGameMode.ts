@@ -3,6 +3,7 @@
 // Runs spectate-only TDM rounds and trains bots in real-time
 
 import * as THREE from 'three';
+
 import { GameMode, type ScoreData } from './GameMode';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
@@ -20,6 +21,9 @@ interface TrainedBot {
     // Track damage for reward calculation
     lastEnemyDamage: number;    // Damage dealt to enemies
     lastFriendlyDamage: number; // Friendly fire (negative reward)
+    // Exploration tracking
+    spawnPosition: THREE.Vector3;
+    stuckTimer: number; // Time spent not moving significantly
 }
 
 export class RLTrainingGameMode extends GameMode {
@@ -278,28 +282,82 @@ export class RLTrainingGameMode extends GameMode {
             reward -= 20; // Significant death penalty
         }
 
+        // === EXPLORATION & MOVEMENT REWARDS ===
+        
+        // 1. Distance from Spawn (Curiosity)
+        // Reward getting away from start point to encourage roaming
+        if (bot.body) {
+            // bot body pos is CANNON vec3, convert or use directly
+            // spawnPos is THREE.Vector3
+            const dx = bot.body.position.x - tb.spawnPosition.x;
+            const dz = bot.body.position.z - tb.spawnPosition.z;
+            const distFromSpawn = Math.sqrt(dx*dx + dz*dz);
+            
+            // Continuous small reward for being far, e.g. 0.01 per meter
+            // This creates a gradient pulling them away
+            reward += distFromSpawn * 0.01; 
+        }
+
+        // 2. Movement Incentive (Velocity)
+        // Check speed from observation (normalized there, but let's use raw approximation from obs or body)
+        // currentObs.velocity is [vx, vy, vz]
+        const speed = Math.sqrt(currObs.velocity[0] * currObs.velocity[0] + currObs.velocity[2] * currObs.velocity[2]);
+        
+        // Threshold: 0.5 m/s
+        if (speed > 0.5) {
+            reward += 0.05; // Small continuous bonus for moving
+            tb.stuckTimer = 0;
+        } else {
+            tb.stuckTimer += 1; // Increment frames stuck
+        }
+
+        // 3. Stuck Penalty (Anti-Camping / Anti-Wall-Hugging)
+        // If stuck for > 3 seconds (approx 180 frames/updates)
+        if (tb.stuckTimer > 180) {
+            reward -= 0.1; // Increasing negative reward for staying still
+        }
+
         // Clamp to reasonable range
         return Math.max(-50, Math.min(50, reward));
     }
 
     private applyAction(bot: Enemy, action: Action): void {
-        const speed = 5;
+        const baseSpeed = 5;
+        // Sprint logic
+        const speed = action.sprint > 0.5 ? baseSpeed * 1.5 : baseSpeed;
+        
         const body = bot.body;
         const mesh = bot.mesh;
 
         if (body) {
-            body.velocity.set(action.moveX * speed, body.velocity.y, action.moveZ * speed);
+            body.velocity.x = action.moveX * speed;
+            body.velocity.z = action.moveZ * speed;
+            // Handle Jump
+            if (action.jump > 0.5) {
+                bot.jump();
+            }
         }
 
         if (mesh) {
             mesh.rotation.y = action.yaw;
         }
 
-        if (action.fire && bot.weapon && bot.ai.target) {
-            const targetPos = bot.ai.target.mesh?.position;
-            if (targetPos) {
-                bot.weapon.pullTrigger(targetPos);
-            }
+        // Apply visual pitch (Look up/down)
+        bot.setLookAngles(action.yaw, action.pitch);
+
+        // Fire Weapon (Manual Aim)
+        if (action.fire > 0.5) {
+            bot.fireAtLookDirection();
+        }
+
+        // Throw Grenade
+        if (action.throwGrenade > 0.5) {
+            bot.throwGrenade();
+        }
+        
+        // Crouch toggle
+        if (action.crouchToggle > 0.5) {
+            bot.toggleCrouch();
         }
     }
 
@@ -330,6 +388,11 @@ export class RLTrainingGameMode extends GameMode {
             this.game.addGameObject(bot);
             this.taskForceAlive.add(bot);
 
+            // Disable autonomous AI for training
+            if (bot.ai) {
+                bot.ai.externalControl = true;
+            }
+
             // Register for training
             this.trainedBots.push({
                 bot,
@@ -338,7 +401,9 @@ export class RLTrainingGameMode extends GameMode {
                 lastLogProb: 0,
                 lastValue: 0,
                 lastEnemyDamage: 0,
-                lastFriendlyDamage: 0
+                lastFriendlyDamage: 0,
+                spawnPosition: pos.clone(),
+                stuckTimer: 0
             });
         }
 
@@ -349,6 +414,11 @@ export class RLTrainingGameMode extends GameMode {
             this.game.addGameObject(bot);
             this.opForAlive.add(bot);
 
+            // Disable autonomous AI for training
+            if (bot.ai) {
+                bot.ai.externalControl = true;
+            }
+
             this.trainedBots.push({
                 bot,
                 lastObs: null,
@@ -356,7 +426,9 @@ export class RLTrainingGameMode extends GameMode {
                 lastLogProb: 0,
                 lastValue: 0,
                 lastEnemyDamage: 0,
-                lastFriendlyDamage: 0
+                lastFriendlyDamage: 0,
+                spawnPosition: pos.clone(),
+                stuckTimer: 0
             });
         }
     }

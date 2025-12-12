@@ -204,6 +204,66 @@ export class WeaponSystem extends Weapon {
         }
     }
 
+    // State for Muzzle Flash
+    private muzzleFlashLight: THREE.PointLight | null = null;
+    private muzzleFlashSprite: THREE.Sprite | null = null;
+    private muzzleFlashTimeout: any = null;
+    
+    // Performance: Reusable Raycaster
+    private raycaster: THREE.Raycaster = new THREE.Raycaster();
+
+    private createMuzzleFlash() {
+        if (this.muzzleFlashTimeout) {
+            clearTimeout(this.muzzleFlashTimeout);
+            this.muzzleFlashTimeout = null;
+        }
+
+        // Initialize (Lazy Load)
+        if (!this.muzzleFlashLight) {
+            this.muzzleFlashLight = new THREE.PointLight(0xffaa00, 3, 10);
+            this.muzzleFlashLight.position.set(0.15, -0.15, -1.0);
+            this.mesh.add(this.muzzleFlashLight);
+
+            const spriteMaterial = new THREE.SpriteMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 1,
+                blending: THREE.AdditiveBlending
+            });
+            this.muzzleFlashSprite = new THREE.Sprite(spriteMaterial);
+            this.muzzleFlashSprite.scale.set(0.3, 0.3, 0.3);
+            this.muzzleFlashSprite.position.set(0.15, -0.15, -1.0);
+            this.mesh.add(this.muzzleFlashSprite);
+        }
+
+        // Show
+        this.muzzleFlashLight.visible = true;
+        this.muzzleFlashSprite!.visible = true;
+        
+        // Randomize
+        this.muzzleFlashSprite!.material.rotation = Math.random() * Math.PI * 2;
+
+        // Hide after 20ms
+        this.muzzleFlashTimeout = setTimeout(() => {
+            if (this.muzzleFlashLight) this.muzzleFlashLight.visible = false;
+            if (this.muzzleFlashSprite) this.muzzleFlashSprite.visible = false;
+            this.muzzleFlashTimeout = null;
+        }, 20);
+    }
+    
+    // Override dispose to clean up
+    public dispose() {
+        if (this.muzzleFlashLight) {
+            this.mesh.remove(this.muzzleFlashLight);
+            this.muzzleFlashLight.dispose();
+        }
+        if (this.muzzleFlashSprite) {
+            this.mesh.remove(this.muzzleFlashSprite);
+            this.muzzleFlashSprite.material.dispose();
+        }
+        super.dispose();
+    }
+
     private fire(camera: THREE.Camera, controller: PlayerController) {
         // Recoil
         const recoilX = this.recoilAmount * (1 + Math.random());
@@ -220,9 +280,8 @@ export class WeaponSystem extends Weapon {
         // For Ballistics, we should spawn bullet at Muzzle, but travel towards Camera Center Target.
 
         // 1. Get Target Point (Raycast from Camera center)
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        const targetRay = raycaster.ray;
+        this.raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const targetRay = this.raycaster.ray;
         let targetPoint = targetRay.at(100, new THREE.Vector3()); // Aim point
 
         // 2. Spawn from Gun Muzzle (World Space)
@@ -246,58 +305,5 @@ export class WeaponSystem extends Weapon {
 
         // Fire Base Method
         this.shoot(muzzlePos, direction);
-    }
-
-    // State for Muzzle Flash
-    private currentMuzzleFlash: THREE.Object3D[] = [];
-    private muzzleFlashTimeout: any = null;
-
-    private createMuzzleFlash() {
-        // remove existing flash if present to avoid stacking
-        if (this.currentMuzzleFlash.length > 0) {
-            this.currentMuzzleFlash.forEach(obj => {
-                this.mesh.remove(obj);
-                // Traverse to dispose materials/geometries if needed, though they are shared usually or simple
-            });
-            this.currentMuzzleFlash = [];
-        }
-        if (this.muzzleFlashTimeout) {
-            clearTimeout(this.muzzleFlashTimeout);
-            this.muzzleFlashTimeout = null;
-        }
-
-        // Create flash light
-        const flashLight = new THREE.PointLight(0xffaa00, 3, 10);
-        flashLight.position.set(0.15, -0.15, -1.0); // At barrel tip
-        this.mesh.add(flashLight);
-        this.currentMuzzleFlash.push(flashLight);
-
-        // Create flash sprite
-        const spriteMaterial = new THREE.SpriteMaterial({
-            color: 0xffff00,
-            transparent: true,
-            opacity: 1,
-            blending: THREE.AdditiveBlending
-        });
-        const flashSprite = new THREE.Sprite(spriteMaterial);
-        flashSprite.scale.set(0.3, 0.3, 0.3);
-        flashSprite.position.set(0.15, -0.15, -1.0);
-        this.mesh.add(flashSprite);
-        this.currentMuzzleFlash.push(flashSprite);
-
-        // Add slight random rotation to sprite for variety
-        flashSprite.material.rotation = Math.random() * Math.PI * 2;
-
-        // Remove after 20ms (1 frame at 60fps is ~16ms, so close to 1 frame)
-        this.muzzleFlashTimeout = setTimeout(() => {
-            if (this.currentMuzzleFlash.length > 0) {
-                this.mesh.remove(flashLight);
-                this.mesh.remove(flashSprite);
-                flashLight.dispose();
-                spriteMaterial.dispose();
-                this.currentMuzzleFlash = [];
-            }
-            this.muzzleFlashTimeout = null;
-        }, 20);
     }
 }

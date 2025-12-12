@@ -2,7 +2,6 @@ module.exports = {
     packagerConfig: {
         ignore: [
             /^\/src/,
-            /^\/node_modules/,
         ]
     },
     rebuildConfig: {},

@@ -98,6 +98,12 @@ export class TeamDeathmatchGameMode extends GameMode {
 
             // Update HUD countdown display
             const secondsLeft = Math.ceil(this.countdownTimer);
+            
+            // Announce 5, 4, 3, 2, 1
+            if (secondsLeft <= 5 && Math.ceil(this.countdownTimer + dt) > secondsLeft) {
+                 this.game.soundManager.playAnnouncerFile(`${secondsLeft}.mp3`);
+            }
+
             (this.game.hudManager as any).showCountdown(secondsLeft);
 
             if (this.countdownTimer <= 0) {
@@ -106,6 +112,7 @@ export class TeamDeathmatchGameMode extends GameMode {
                 this.aiEnabled = true; // Enable AI when round starts
                 (this.game.hudManager as any).hideCountdown();
                 console.log(`=== ROUND ${this.roundNumber} - GO! ===`);
+                this.game.soundManager.playAnnouncer("Execute Mission. Go Go Go!");
             }
             return;
         }
@@ -363,9 +370,16 @@ export class TeamDeathmatchGameMode extends GameMode {
             // const message = `${winner} WINS`;
             console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
             (this.game.hudManager as any).showRoundResult(winner, `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
+            
+            // Announce Winner
+            const winText = winner === 'TaskForce' ? "Task Force Wins" : "Opposing Force Wins";
+            this.game.soundManager.playAnnouncer(winText);
+
         } else {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
             (this.game.hudManager as any).showRoundResult(null, "No survivors");
+            
+            this.game.soundManager.playAnnouncer("Round Draw");
         }
 
         console.log(`Score: TaskForce ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']} OpFor`);

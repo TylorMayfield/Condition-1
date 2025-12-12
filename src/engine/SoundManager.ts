@@ -355,6 +355,10 @@ export class SoundManager {
      */
     public setMasterVolume(volume: number): void {
         this.masterVolume = Math.max(0, Math.min(1, volume));
+        // Update loaded audio if possible. Global audio:
+        if (this.globalAudio) {
+            this.globalAudio.setVolume(this.masterVolume);
+        }
     }
 
     /**
@@ -362,5 +366,59 @@ export class SoundManager {
      */
     public isReady(): boolean {
         return this.initialized;
+    }
+
+    /**
+     * Play announcer voice using Text-to-Speech (Fallback)
+     */
+    public playAnnouncer(text: string): void {
+        // ... (existing TTS logic) ...
+         console.log(`[Announcer] "${text}"`);
+
+        // Use built-in browser speech synthesis
+        if ('speechSynthesis' in window) {
+            // Cancel previous speech to avoid queue buildup
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.volume = this.masterVolume;
+            utterance.rate = 1.1; 
+            utterance.pitch = 0.8;
+
+            const voices = window.speechSynthesis.getVoices();
+            const preferred = voices.find(v => v.name.includes('Google US English')) ||
+                             voices.find(v => v.lang === 'en-US');
+            
+            if (preferred) {
+                utterance.voice = preferred;
+            }
+
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+
+    /**
+     * Play specific announcer file from public/sounds/announcer/
+     */
+    public playAnnouncerFile(filename: string): void {
+        const path = `/sounds/announcer/${filename}`;
+        this.playGlobalSound(path, 1.0);
+    }
+
+    /**
+     * Play random hurt sound at position
+     */
+    public playHurtSound(position: THREE.Vector3): void {
+        const index = Math.floor(Math.random() * 4) + 1; // 1 to 4
+        const path = `/sounds/hurt/hurt${index}.mp3`;
+        
+        // Use Positional Audio
+        if (!this.initialized || !this.audioLoader || !this.camera) return;
+
+        // Check cache or load
+        // Note: Positional audio needs buffer to be loaded first
+        this.audioLoader.load(path, (buffer) => {
+            this.playPositionalSound(position, buffer, 0.8);
+        });
     }
 }

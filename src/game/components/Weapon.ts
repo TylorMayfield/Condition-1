@@ -77,4 +77,19 @@ export abstract class Weapon {
         if (this.isReloading) return 'RELOADING...';
         return `${this.currentAmmo} / ${this.reserveAmmo}`;
     }
+
+    public dispose() {
+        if (this.mesh) {
+            this.mesh.traverse((child) => {
+               if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+               if ((child as THREE.Mesh).material) {
+                   if (Array.isArray((child as THREE.Mesh).material)) {
+                       ((child as THREE.Mesh).material as THREE.Material[]).forEach(m => m.dispose());
+                   } else {
+                       ((child as THREE.Mesh).material as THREE.Material).dispose();
+                   }
+               }
+            });
+        }
+    }
 }

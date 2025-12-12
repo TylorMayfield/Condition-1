@@ -154,7 +154,11 @@ export class EnemyAI {
         this.tryRegisterWithCrowd();
     }
 
+    // External control (for RL training mode)
+    public externalControl: boolean = false;
+
     private tryRegisterWithCrowd(): void {
+        if (this.externalControl) return;
         if (!this.game.recastNav || !this.game.recastNav.getCrowd()) {
             this.registrationTimeout = setTimeout(() => this.tryRegisterWithCrowd(), 500);
             return;
@@ -202,6 +206,8 @@ export class EnemyAI {
     }
 
     public update(dt: number) {
+        if (this.externalControl) return;
+
         const body = this.owner.body;
         const mesh = this.owner.mesh;
         if (!body || !mesh) return;
@@ -267,8 +273,38 @@ export class EnemyAI {
             crouch: (this.owner as any).isCrouching ? 1 : 0,
             grenades: (this.owner as any).grenades ?? 0,
             team: this.owner.team === 'TaskForce' ? 0 : 1,
-            visionGrid: new Array(32 * 32).fill(0), // Simplified for now
+            visionGrid: this.buildVisionGrid(), 
         };
+    }
+
+    private buildVisionGrid(): number[] {
+        const grid = new Array(32 * 32).fill(0);
+        const botPos = this.owner.body?.position;
+        if (!botPos) return grid;
+
+        const gameObjects = this.game.getGameObjects();
+        for (const go of gameObjects) {
+            if (go === this.owner) continue;
+            if (!(go instanceof Enemy)) continue; // Only see other bots for now (or maybe Player?)
+            
+            const otherPos = go.body?.position;
+            if (!otherPos) continue;
+
+            const dx = otherPos.x - botPos.x;
+            const dz = otherPos.z - botPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+
+            if (dist > 50) continue;
+
+            const gridX = Math.floor((dx + 32) / 2);
+            const gridZ = Math.floor((dz + 32) / 2);
+
+            if (gridX >= 0 && gridX < 32 && gridZ >= 0 && gridZ < 32) {
+                const idx = gridZ * 32 + gridX;
+                grid[idx] = go.team === this.owner.team ? 1 : 2;
+            }
+        }
+        return grid;
     }
 
     /** Apply action from RL policy to the bot */

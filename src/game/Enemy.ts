@@ -7,6 +7,7 @@ import { EnemyWeapon } from './components/EnemyWeapon';
 
 import { AmmoPickup } from './pickups/AmmoPickup';
 import { RagdollEntity } from './entities/RagdollEntity';
+import { Grenade } from './components/Grenade';
 
 export class Enemy extends GameObject {
     public health: number = 100;
@@ -146,6 +147,12 @@ export class Enemy extends GameObject {
 
         // Link physics body to this instance for hit detection
         (this.body as any).gameObject = this;
+
+        // Link visual mesh to this instance for fast raycast lookup
+        this.mesh.userData.gameObject = this;
+        this.mesh.traverse((child) => {
+            child.userData.gameObject = this;
+        });
     }
 
     public takeDamage(amount: number, forceDir: THREE.Vector3, forceMagnitude: number, attacker?: any, hitObject?: THREE.Object3D) {
@@ -335,6 +342,11 @@ export class Enemy extends GameObject {
         }
 
         this.weapon.update(dt);
+
+        if (this.grenadeCooldown > 0) {
+            this.grenadeCooldown -= dt;
+        }
+
         this.animate(dt);
     }
 
@@ -421,7 +433,6 @@ export class Enemy extends GameObject {
 
         // Check if we should be aiming
         // Attacking(2), Chasing(1), Alert(6), Guarding(7), Searching(4)
-        // Note: Using raw numbers for now to match previous logic, ideally use AIStateId enum
         const shouldAim = (aiState === 2 || aiState === 1 || aiState === 6 || aiState === 7 || aiState === 4);
         const targetAimWeight = shouldAim ? 1.0 : 0.0;
 
@@ -431,8 +442,6 @@ export class Enemy extends GameObject {
         // Apply Aiming Pose on top of walk cycle
         if (this.aimWeight > 0.01) {
             // Right arm (Weapon)
-            // Relaxed: swinging with walk
-            // Aimed: -PI/2 (forward)
             const currentRA_X = this.rightArm.rotation.x;
             const targetRA_X = -Math.PI / 2;
             this.rightArm.rotation.x = THREE.MathUtils.lerp(currentRA_X, targetRA_X, this.aimWeight);
@@ -441,7 +450,6 @@ export class Enemy extends GameObject {
 
             // Left arm (Support)
             const currentLA_X = this.leftArm.rotation.x;
-            // Aimed: -PI/2.2 (-1.42), Aimed Z: 0.3, Aimed Y: 0.2
             this.leftArm.rotation.x = THREE.MathUtils.lerp(currentLA_X, -Math.PI / 2.2, this.aimWeight);
             this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.3, this.aimWeight);
             this.leftArm.rotation.y = THREE.MathUtils.lerp(this.leftArm.rotation.y, 0.2, this.aimWeight);
@@ -457,5 +465,115 @@ export class Enemy extends GameObject {
             }
         }
     }
-}
 
+    // === COMBAT ABILITIES ===
+
+    public setLookAngles(yaw: number, pitch: number) {
+        if (this.mesh) {
+            this.mesh.rotation.y = yaw;
+        }
+        if (this.head) {
+            // Clamp pitch to avoid neck breaking (-80 to +80 degrees)
+            const clampedPitch = Math.max(-1.4, Math.min(1.4, pitch));
+            this.head.rotation.x = clampedPitch;
+        }
+    }
+
+    public fireAtLookDirection() {
+        if (!this.weapon || !this.head || !this.mesh) return;
+
+        // Calculate aim direction from mesh/head rotation
+        // Mesh Y rotation + Head X rotation
+        const yaw = this.mesh.rotation.y;
+        const pitch = this.head.rotation.x;
+
+        // Convert to direction vector
+        const dir = new THREE.Vector3(0, 0, 1); // Forward relative to object
+        // Apply Head Pitch first (rotation around local X)
+        dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
+        // Apply Body Yaw (rotation around world Y)
+        dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        
+        // Calculate target point far away
+        const origin = this.head.position.clone().add(this.mesh.position);
+        const targetPos = origin.clone().add(dir.multiplyScalar(100)); // 100m away
+
+        this.weapon.pullTrigger(targetPos);
+    }
+
+    private grenadeCooldown: number = 0;
+    
+    public throwGrenade() {
+        if (this.grenadeCooldown > 0) return;
+        if (!this.head || !this.mesh) return;
+        
+        this.grenadeCooldown = 5.0; // 5 seconds cooldown
+
+        console.log(`${this.name} throwing grenade!`);
+
+        // Spawn position (from hand/head)
+        const origin = this.head.position.clone().add(this.mesh.position);
+        origin.y += 0.2;
+        origin.add(new THREE.Vector3(0.5, 0, 0.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y));
+
+        // Throw velocity (aim direction * power)
+        const yaw = this.mesh.rotation.y;
+        const pitch = this.head.rotation.x;
+        
+        const dir = new THREE.Vector3(0, 0, 1); 
+        dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch - 0.2); // Tilted up slightly for arc
+        dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+        const velocity = dir.multiplyScalar(15); // 15 m/s throw
+
+        new Grenade(this.game, origin, velocity);
+    }
+
+    // === MOVEMENT ABILITIES ===
+
+    public jump() {
+        if (this.checkGrounded()) {
+            if (this.body) {
+                this.body.velocity.y = 5; // Jump Force
+            }
+        }
+    }
+
+    public toggleCrouch() {
+        // Simple toggle state
+        this.isProne = !this.isProne; // Reusing isProne internal link or separate crouch? 
+        // Logic uses setProne/isProne. Let's assume toggleCrouch means toggle Low Profile (Prone/Crouch)
+        // For AI simplicity, let's map it to Prone for now or add explicit Crouch later.
+        // The implementation plan mentioned Crouch/Prone. 
+        // Existing code has setProne. I will use that.
+    }
+
+    public setCrouch(isCrouching: boolean) {
+        // Reuse isProne for now as "Low Profile" mode
+        this.setProne(isCrouching);
+    }
+
+    private checkGrounded(): boolean {
+        if (!this.body) return false;
+        
+        const world = this.game.world;
+        let isGrounded = false;
+        
+        for (const contact of world.contacts) {
+            let normalY = 0;
+            if (contact.bi === this.body) {
+                normalY = -contact.ni.y;
+            } else if (contact.bj === this.body) {
+                normalY = contact.ni.y;
+            } else {
+                continue;
+            }
+
+            if (normalY > 0.5) {
+                isGrounded = true;
+                break;
+            }
+        }
+        return isGrounded;
+    }
+}
