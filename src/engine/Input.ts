@@ -42,6 +42,37 @@ export class Input {
                 this.lockCursor();
             }
         });
+        
+        // Clear all key states when window loses focus (fixes stuck keys after alt-tab)
+        window.addEventListener('blur', () => {
+            // Clear all keys to prevent stuck key states
+            this.keys.clear();
+            this.mouseButtons.clear();
+            this.previousKeys.clear();
+            this.previousMouseButtons.clear();
+            this.mouseDelta.x = 0;
+            this.mouseDelta.y = 0;
+        });
+        
+        // Auto-relock when window regains focus (fixes alt-tab issue)
+        window.addEventListener('focus', () => {
+            // Clear all keys again to ensure clean state (in case blur didn't fire)
+            this.keys.clear();
+            this.mouseButtons.clear();
+            this.previousKeys.clear();
+            this.previousMouseButtons.clear();
+            
+            // Reset mouse delta to prevent unwanted movement when regaining focus
+            this.mouseDelta.x = 0;
+            this.mouseDelta.y = 0;
+            
+            // Small delay to ensure pointer lock can be requested after focus
+            setTimeout(() => {
+                if (!this.isPointerLocked && !this.isMenuVisible() && !this.isEditorActive) {
+                    this.lockCursor();
+                }
+            }, 100);
+        });
     }
 
     private isMenuVisible(): boolean {

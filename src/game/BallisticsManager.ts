@@ -19,10 +19,21 @@ export class BallisticsManager {
     private gravity: number = 9.81;
     private raycaster: THREE.Raycaster;
     private windVector: THREE.Vector3 = new THREE.Vector3();
+    
+    // Reusable temp vectors to avoid allocations
+    private tempVec1: THREE.Vector3 = new THREE.Vector3();
+    private tempVec2: THREE.Vector3 = new THREE.Vector3();
+    private tempVec3: THREE.Vector3 = new THREE.Vector3();
+    private tempVec4: THREE.Vector3 = new THREE.Vector3();
 
     // Shared geometry and material for pooling
     private bulletGeometry: THREE.BoxGeometry;
     private bulletMaterial: THREE.MeshBasicMaterial;
+    
+    // Cached raycastable objects (world geometry, enemies, etc.) - excludes projectiles
+    private raycastableObjects: THREE.Object3D[] = [];
+    private lastCacheUpdate: number = 0;
+    private cacheUpdateInterval: number = 0.1; // Update cache every 100ms
 
     constructor(game: Game) {
         this.game = game;
@@ -32,6 +43,9 @@ export class BallisticsManager {
         // Init shared resources
         this.bulletGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.2);
         this.bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        
+        // Initialize raycastable cache (will be updated periodically)
+        this.updateRaycastableCache();
     }
 
     public spawnBullet(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, owner: any) {
@@ -64,10 +78,11 @@ export class BallisticsManager {
             this.game.scene.add(mesh);
         }
 
-        // Initialize state
+        // Initialize state (reuse temp vector for lookAt)
         p.position.copy(origin);
         p.mesh.position.copy(origin);
-        p.mesh.lookAt(origin.clone().add(direction));
+        const lookTarget = this.tempVec1.copy(origin).add(direction);
+        p.mesh.lookAt(lookTarget);
 
         p.velocity.copy(direction).multiplyScalar(speed);
         p.lifeTime = 5.0;
@@ -78,13 +93,22 @@ export class BallisticsManager {
     }
 
     public update(dt: number) {
+        // Update wind vector (don't mutate, create new for calculation)
         if (this.game.weatherManager) {
             this.windVector.copy(this.game.weatherManager.wind);
         } else {
             this.windVector.set(0, 0, 0);
         }
 
-        const windInfluence = this.windVector.multiplyScalar(dt * 0.5);
+        // Calculate wind influence (reuse temp vector)
+        const windInfluence = this.tempVec1.copy(this.windVector).multiplyScalar(dt * 0.5);
+
+        // Update raycastable objects cache periodically (avoids checking every frame)
+        this.lastCacheUpdate += dt;
+        if (this.lastCacheUpdate >= this.cacheUpdateInterval) {
+            this.updateRaycastableCache();
+            this.lastCacheUpdate = 0;
+        }
 
         // Iterate backwards for safe removal
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -100,25 +124,23 @@ export class BallisticsManager {
             // Gravity
             p.velocity.y -= this.gravity * dt * 0.5; // Slight drop
 
-            // Wind
+            // Wind (add to velocity)
             p.velocity.add(windInfluence);
 
-            const startPos = p.position.clone(); // Optimization: Could reuse a temp vector if strictly single-threaded
-            const moveStep = p.velocity.clone().multiplyScalar(dt); // Optimization: reuse temp
-            const endPos = startPos.clone().add(moveStep);
+            // Reuse temp vectors instead of cloning
+            const startPos = this.tempVec2.copy(p.position);
+            const moveStep = this.tempVec3.copy(p.velocity).multiplyScalar(dt);
+            const endPos = this.tempVec4.copy(startPos).add(moveStep);
 
             // Raycast for Hit Detection (Continuous)
-            // Reuse raycaster
-            this.raycaster.set(startPos, moveStep.clone().normalize());
+            // Use cached raycastable objects instead of all scene children
+            const moveDir = this.tempVec1.copy(moveStep).normalize();
+            this.raycaster.set(startPos, moveDir);
             this.raycaster.far = moveStep.length();
-
-            // Fix: Raycasting against Sprites requires camera to be set
             this.raycaster.camera = this.game.camera;
 
-            // Optimization: Intersect only what we need? 
-            // scene.children includes everything. Ideally we check specific layers.
-            // For now, checking scene.children is still O(N) but reusing raycaster saves GC.
-            const intersects = this.raycaster.intersectObjects(this.game.scene.children, true);
+            // OPTIMIZATION: Only raycast against relevant objects (excludes projectiles, HUD, etc.)
+            const intersects = this.raycaster.intersectObjects(this.raycastableObjects, true);
 
             let hitSomething = false;
 
@@ -166,16 +188,53 @@ export class BallisticsManager {
             if (!hitSomething) {
                 p.position.copy(endPos);
                 p.mesh.position.copy(endPos);
-                // Look along trajectory
-                const lookTarget = endPos.clone().add(p.velocity);
+                // Look along trajectory (reuse temp vector)
+                const lookTarget = this.tempVec1.copy(endPos).add(p.velocity);
                 p.mesh.lookAt(lookTarget);
             }
         }
     }
+    
+    private updateRaycastableCache() {
+        // Rebuild cache of objects that can be hit by projectiles
+        // Excludes: projectiles themselves, HUD elements, skybox, etc.
+        this.raycastableObjects.length = 0;
+        
+        const scene = this.game.scene;
+        const projectiles = this.projectiles;
+        
+        // Helper to check if object is a projectile
+        const isProjectile = (obj: THREE.Object3D): boolean => {
+            for (const p of projectiles) {
+                if (p.mesh === obj || (p.mesh && p.mesh.children.includes(obj))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        
+        // Traverse scene and collect raycastable objects
+        scene.traverse((obj) => {
+            // Skip projectiles
+            if (isProjectile(obj)) return;
+            
+            // Skip invisible objects
+            if (!obj.visible) return;
+            
+            // Skip HUD scene objects (they're in sceneHUD, but check just in case)
+            if (obj.parent === this.game.sceneHUD) return;
+            
+            // Only include meshes (not lights, cameras, etc.)
+            if (obj instanceof THREE.Mesh || obj instanceof THREE.Group) {
+                this.raycastableObjects.push(obj);
+            }
+        });
+    }
 
     private handleHit(hit: THREE.Intersection, p: Projectile) {
-        // Visual Decal
-        this.spawnDecal(hit.point, hit.face?.normal || new THREE.Vector3(0, 1, 0));
+        // Visual Decal (reuse temp vector for normal)
+        const normal = hit.face?.normal || this.tempVec1.set(0, 1, 0);
+        this.spawnDecal(hit.point, normal);
 
         // Damage Logic - Optimized Lookup
         let obj: any = hit.object;
@@ -213,9 +272,10 @@ export class BallisticsManager {
         }
 
         if (foundGO) {
-            // Check if it's an enemy/damageable
+            // Check if it's an enemy/damageable (reuse temp vector for normalized velocity)
             if ('takeDamage' in foundGO && typeof (foundGO as any).takeDamage === 'function') {
-                (foundGO as any).takeDamage(p.damage, p.velocity.clone().normalize(), 5, p.owner, hit.object);
+                const normalizedVel = this.tempVec1.copy(p.velocity).normalize();
+                (foundGO as any).takeDamage(p.damage, normalizedVel, 5, p.owner, hit.object);
             }
         }
     }
@@ -226,7 +286,9 @@ export class BallisticsManager {
         const mat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.copy(point);
-        mesh.lookAt(point.clone().add(normal));
+        // Reuse temp vector for lookAt target
+        const lookTarget = this.tempVec1.copy(point).add(normal);
+        mesh.lookAt(lookTarget);
         this.game.scene.add(mesh);
 
         // Use a simpler timeout or pool for debris

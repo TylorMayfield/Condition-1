@@ -105,11 +105,15 @@ export class Game {
         // PERFORMANCE: Use SAPBroadphase instead of NaiveBroadphase (O(n log n) vs O(n²))
         this.world.broadphase = new CANNON.SAPBroadphase(this.world);
 
-        // PERFORMANCE: Reduce solver iterations (default 10)
-        (this.world.solver as CANNON.GSSolver).iterations = 5;
+        // PERFORMANCE: Reduce solver iterations (default 10) - further reduced for better performance
+        (this.world.solver as CANNON.GSSolver).iterations = 3;
 
         // PERFORMANCE: Allow sleeping bodies (static bodies won't be checked every frame)
         this.world.allowSleep = true;
+        
+        // PERFORMANCE: Reduce max substeps to prevent physics spikes
+        // This limits how many physics steps can run per frame
+        (this.world as any).maxSubSteps = 2; // Default is 10, reduce to prevent catch-up spikes
 
         // Zero friction default (PlayerController handles movement)
         this.world.defaultContactMaterial.friction = 0;
@@ -351,7 +355,7 @@ export class Game {
 
         // Run simulation steps
         const fixedStep = 1 / 60;
-        const maxSteps = 2; // Prevent death spiral - game slows instead of framerate crash
+        const maxSteps = 1; // Reduced from 2 to prevent double-update spikes (was causing 2x physics cost)
         let steps = 0;
 
         const t0 = performance.now();
@@ -401,8 +405,9 @@ export class Game {
 
     private update(dt: number) {
         // Step physics
+        // Reduced maxSubSteps from 3 to 2 to prevent physics spikes
         this.profiler.start('Physics');
-        this.world.step(1 / 60, dt, 3);
+        this.world.step(1 / 60, dt, 2);
         this.profiler.end('Physics');
 
         // Update entities

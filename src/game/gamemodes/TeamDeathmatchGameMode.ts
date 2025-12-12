@@ -78,7 +78,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.isGameOver = false;
 
         // Ensure clean state immediately to remove any HMR leftovers
-        this.cleanupRound();
+        this.onRoundCleanup();
 
         // Reset spectating state (unless spectator only mode is on, handled in startNewRound)
         this.isSpectating = false;
@@ -95,24 +95,14 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Handle countdown phase
         if (this.countdownActive) {
             this.countdownTimer -= dt;
-
-            // Update HUD countdown display
             const secondsLeft = Math.ceil(this.countdownTimer);
-
-            // Announce 5, 4, 3, 2, 1
-            if (secondsLeft <= 5 && Math.ceil(this.countdownTimer + dt) > secondsLeft) {
-                this.game.soundManager.playAnnouncerFile(`${secondsLeft}.mp3`);
-            }
-
-            (this.game.hudManager as any).showCountdown(secondsLeft);
+            this.onCountdownTick(secondsLeft);
 
             if (this.countdownTimer <= 0) {
                 this.countdownActive = false;
                 this.roundActive = true;
-                this.aiEnabled = true; // Enable AI when round starts
-                (this.game.hudManager as any).hideCountdown();
-                console.log(`=== ROUND ${this.roundNumber} - GO! ===`);
-                this.game.soundManager.playAnnouncer("Execute Mission. Go Go Go!");
+                this.aiEnabled = true;
+                this.onCountdownEnd();
             }
             return;
         }
@@ -120,8 +110,6 @@ export class TeamDeathmatchGameMode extends GameMode {
         // If round is not active and not in countdown, we're in between rounds
         if (!this.roundActive) {
             this.roundEndTimer += dt;
-            // Immediate start for first round (Round 0 -> 1)
-            // Otherwise wait for delay (between rounds)
             if (this.roundNumber === 0 || this.roundEndTimer >= this.roundEndDelay) {
                 this.startNewRound();
             }
@@ -130,58 +118,112 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Update round timer during active round
         this.roundTimer -= dt;
-
-        // Update HUD timer display
         (this.game.hudManager as any).showRoundTimer(this.getFormattedRoundTime());
 
         // Check for round timeout
         if (this.roundTimer <= 0) {
-            console.log('[TDM] Round timeout! Determining winner by damage...');
             (this.game.hudManager as any).hideRoundTimer();
-            this.handleRoundTimeout();
+            this.onRoundTimeout();
             return;
         }
 
-        // Check for round end condition (one team eliminated)
-        this.checkRoundEnd();
+        // Check for round end condition using hook
+        const winner = this.checkWinCondition();
+        if (winner !== null) {
+            this.endRound(winner);
+        }
     }
 
     private startNewRound(): void {
-        this.cleanupRound(); // Ensure clean slate (removes any existing bots)
+        this.onRoundCleanup(); // Clean up previous round
 
         this.roundNumber++;
         this.roundEndTimer = 0;
-        this.aiEnabled = false; // Disable AI during countdown
-
-        console.log(`\n=== ROUND ${this.roundNumber} STARTING ===`);
-        console.log(`TaskForce: ${this.roundWins['TaskForce']} | OpFor: ${this.roundWins['OpFor']}`);
-
-        // Clear old trackers (redundant with cleanupRound logic but safe)
+        this.aiEnabled = false;
         this.taskForceAlive.clear();
         this.opForAlive.clear();
+
+        // Restore scores before spawning
+        this.onRestoreScores();
 
         // Spawn teams
         this.spawnTeams();
 
-        // Register player if alive (and not in spectate only mode)
+        // Handle player spawn/spectator
         if (this.game.player) {
             if (!this.isSpectatorOnly) {
-                const ctSpawns = this.game.availableSpawns?.CT || [];
-                const spawnPos = this.getSafeSpawnPosition(ctSpawns, false); // No jitter for player preferred
-                this.game.player.respawn(spawnPos);
-                this.taskForceAlive.add(this.game.player);
-                this.isSpectating = false;
+                const spawnPos = this.getSpawnPosition('TaskForce', false) || new THREE.Vector3(0, 10, 0);
+                if (this.onBeforeSpawn(this.game.player, spawnPos)) {
+                    this.game.player.respawn(spawnPos);
+                    this.taskForceAlive.add(this.game.player);
+                    this.isSpectating = false;
+                    this.onAfterSpawn(this.game.player);
+                }
             } else {
-                // Spectator Only or Camera Mode
-                this.enableSpectatorMode();
+                this.onEnterSpectator();
             }
         }
 
-        // Start countdown (don't activate round yet)
+        // Start countdown
         this.countdownActive = true;
         this.countdownTimer = this.countdownDuration;
-        this.roundTimer = this.roundTimeLimit; // Initialize round timer
-        this.roundActive = false; // Round starts after countdown
+        this.roundTimer = this.roundTimeLimit;
+        this.roundActive = false;
+        this.onRoundStart(this.roundNumber);
+        this.onCountdownStart(this.countdownDuration);
+    }
+
+    public onCountdownStart(_duration: number): void {
+        // Hook implementation - can be overridden if needed
+    }
+
+    public onCountdownTick(secondsRemaining: number): void {
+        (this.game.hudManager as any).showCountdown(secondsRemaining);
+        if (secondsRemaining <= 5 && secondsRemaining > 0) {
+            this.game.soundManager.playAnnouncerFile(`${secondsRemaining}.mp3`);
+        }
+    }
+
+    public onCountdownEnd(): void {
+        (this.game.hudManager as any).hideCountdown();
+        console.log(`=== ROUND ${this.roundNumber} - GO! ===`);
+        this.game.soundManager.playAnnouncer("Execute Mission. Go Go Go!");
+    }
+
+    public onRoundStart(roundNumber: number): void {
+        console.log(`\n=== ROUND ${roundNumber} STARTING ===`);
+        console.log(`TaskForce: ${this.roundWins['TaskForce']} | OpFor: ${this.roundWins['OpFor']}`);
+    }
+
+    public onRoundEnd(_winner: string | null): void {
+        // Hook implementation - cleanup handled in endRound
+    }
+
+    public onBeforeSpawn(_entity: GameObject, _position: THREE.Vector3): boolean {
+        return true; // Allow spawn by default
+    }
+
+    public onAfterSpawn(_entity: GameObject): void {
+        // Hook implementation - can be overridden if needed
+    }
+
+    public onSaveScores(): void {
+        for (const p of this.participants) {
+            if (p.objectRef) {
+                if (p.objectRef instanceof Enemy) {
+                    p.score = p.objectRef.damageDealt;
+                } else if (p.objectRef === this.game.player) {
+                    p.score = this.game.player.damageDealt;
+                }
+            }
+            if (p.id) {
+                this.persistentScores.set(p.id, p.score);
+            }
+        }
+    }
+
+    public onRestoreScores(): void {
+        // Scores are restored in spawnTeams when creating entities
     }
 
     private spawnTeams(): void {
@@ -208,18 +250,19 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Aim for 5 members total. If player exists and playing, spawn 4 bots.
         // If spectator only, spawn 5 bots to fill the team.
         const teammateCount = this.isSpectatorOnly ? this.botsPerTeam : this.botsPerTeam - 1;
-        const ctSpawns = this.game.availableSpawns?.CT || [];
 
         for (let i = 0; i < teammateCount; i++) {
-            const pos = this.getSafeSpawnPosition(ctSpawns, true); // Jitter enabled
-            const name = `TaskForce ${i + 1}`; // Stable Name: "TaskForce 1", "TaskForce 2"...
-            const bot = new Enemy(this.game, pos, 'Player', name); // 'Player' team = TaskForce
+            const spawnPos = this.getSpawnPosition('TaskForce', true) || new THREE.Vector3(0, 10, 0);
+            const name = `TaskForce ${i + 1}`;
+            const bot = new Enemy(this.game, spawnPos, 'Player', name);
 
-            // Restore Score
             bot.damageDealt = this.persistentScores.get(name) || 0;
 
-            this.game.addGameObject(bot);
-            this.taskForceAlive.add(bot);
+            if (this.onBeforeSpawn(bot, spawnPos)) {
+                this.game.addGameObject(bot);
+                this.taskForceAlive.add(bot);
+                this.onAfterSpawn(bot);
+            }
 
             this.participants.push({
                 id: bot.name,
@@ -233,17 +276,18 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Spawn OpFor bots (enemies)
         // Spawn full team
-        const tSpawns = this.game.availableSpawns?.T || [];
         for (let i = 0; i < this.botsPerTeam; i++) {
-            const pos = this.getSafeSpawnPosition(tSpawns, true); // Jitter enabled
-            const name = `OpFor ${i + 1}`; // Stable Name: "OpFor 1", "OpFor 2"...
-            const bot = new Enemy(this.game, pos, 'OpFor', name);
+            const spawnPos = this.getSpawnPosition('OpFor', true) || new THREE.Vector3(0, 10, 0);
+            const name = `OpFor ${i + 1}`;
+            const bot = new Enemy(this.game, spawnPos, 'OpFor', name);
 
-            // Restore Score
             bot.damageDealt = this.persistentScores.get(name) || 0;
 
-            this.game.addGameObject(bot);
-            this.opForAlive.add(bot);
+            if (this.onBeforeSpawn(bot, spawnPos)) {
+                this.game.addGameObject(bot);
+                this.opForAlive.add(bot);
+                this.onAfterSpawn(bot);
+            }
 
             this.participants.push({
                 id: bot.name,
@@ -262,6 +306,11 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Combine all alive bots
         const allBots = [...this.taskForceAlive, ...this.opForAlive].filter(go => go instanceof Enemy);
         this.spectatorController.setTargets(allBots as GameObject[]);
+    }
+
+    public getSpawnPosition(team: string, applyJitter: boolean = false): THREE.Vector3 | null {
+        const spawns = team === 'TaskForce' ? (this.game.availableSpawns?.CT || []) : (this.game.availableSpawns?.T || []);
+        return this.getSafeSpawnPosition(spawns, applyJitter);
     }
 
     private getSafeSpawnPosition(spawns: THREE.Vector3[], applyJitter: boolean = false): THREE.Vector3 {
@@ -328,22 +377,20 @@ export class TeamDeathmatchGameMode extends GameMode {
         return shuffled[0].clone();
     }
 
-    private checkRoundEnd(): void {
-        // Update alive counts (in case entities died outside of onEntityDeath)
+    public checkWinCondition(): string | null {
         this.updateAliveCounts();
 
         const taskForceCount = this.taskForceAlive.size;
         const opForCount = this.opForAlive.size;
 
-        // Check win conditions
         if (taskForceCount === 0 && opForCount > 0) {
-            this.endRound('OpFor');
+            return 'OpFor';
         } else if (opForCount === 0 && taskForceCount > 0) {
-            this.endRound('TaskForce');
+            return 'TaskForce';
         } else if (taskForceCount === 0 && opForCount === 0) {
-            // Draw - no one wins this round
-            this.endRound(null);
+            return null; // Draw
         }
+        return null; // Round still active
     }
 
     private updateAliveCounts(): void {
@@ -367,20 +414,19 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.roundActive = false;
         this.roundEndTimer = 0;
 
+        // Save scores before cleanup
+        this.onSaveScores();
+
         if (winner) {
             this.roundWins[winner]++;
-            // const message = `${winner} WINS`;
             console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
             (this.game.hudManager as any).showRoundResult(winner, `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
 
-            // Announce Winner
             const winText = winner === 'TaskForce' ? "Task Force Wins" : "Opposing Force Wins";
             this.game.soundManager.playAnnouncer(winText);
-
         } else {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
             (this.game.hudManager as any).showRoundResult(null, "No survivors");
-
             this.game.soundManager.playAnnouncer("Round Draw");
         }
 
@@ -393,13 +439,10 @@ export class TeamDeathmatchGameMode extends GameMode {
             this.endGame('OpFor');
         }
 
-        // Clean up dead bodies for next round
-        this.cleanupRound();
+        this.onRoundEnd(winner);
     }
 
-    /** Handle round ending due to time limit expiration */
-    private handleRoundTimeout(): void {
-        // Calculate team damage totals to determine winner
+    public onRoundTimeout(): void {
         let taskForceDamage = 0;
         let opForDamage = 0;
 
@@ -413,15 +456,9 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         console.log(`[TDM] Timeout! TaskForce damage: ${taskForceDamage}, OpFor damage: ${opForDamage}`);
 
-        // Team with most damage wins
-        if (taskForceDamage > opForDamage) {
-            this.endRound('TaskForce');
-        } else if (opForDamage > taskForceDamage) {
-            this.endRound('OpFor');
-        } else {
-            // Exact tie - draw
-            this.endRound(null);
-        }
+        const winner = taskForceDamage > opForDamage ? 'TaskForce' : 
+                      (opForDamage > taskForceDamage ? 'OpFor' : null);
+        this.endRound(winner);
     }
 
     /** Get remaining round time in seconds for HUD display */
@@ -437,44 +474,20 @@ export class TeamDeathmatchGameMode extends GameMode {
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
-    private cleanupRound(): void {
-        // Save current scores before cleanup
-        for (const p of this.participants) {
-            if (p.objectRef) {
-                // Update score one last time from object to participant
-                if (p.objectRef instanceof Enemy) {
-                    p.score = p.objectRef.damageDealt;
-                } else if (p.objectRef === this.game.player) {
-                    p.score = this.game.player.damageDealt;
-                }
-            }
-            // Save to persistent map
-            if (p.id) {
-                this.persistentScores.set(p.id, p.score);
-            }
-        }
-
+    public onRoundCleanup(): void {
         // Remove all enemy objects
-        // Use constructor name check to catch HMR ghosts where instanceof fails
         const toRemove = this.game.getGameObjects().filter(go =>
             go instanceof Enemy || go.constructor.name === 'Enemy'
         );
 
         toRemove.forEach(go => {
-            // Explicitly try calling dispose if it exists
             if ('dispose' in go && typeof (go as any).dispose === 'function') {
                 (go as any).dispose();
             } else {
-                // Fallback force remove
                 this.game.removeGameObject(go);
             }
         });
 
-        // Reset player health for next round (but NOT damageDealt if using persistent logic above)
-        // Wait, 'spawnTeams' sets damageDealt from persistence. So it's safe to not reset it here, 
-        // OR we can reset it properties on the object, but we are about to re-spawn anyway.
-        // Actually, for the player (who isn't destroyed), we should probably update their `damageDealt` 
-        // in startNewRound when we reload it. 
         if (this.game.player) {
             this.game.player.health = 100;
         }
@@ -495,45 +508,40 @@ export class TeamDeathmatchGameMode extends GameMode {
     }
 
     public onEntityDeath(victim: GameObject, killer?: GameObject): void {
-        // Update Participant Status
         const participant = this.participants.find(p => p.objectRef === victim);
         if (participant) {
             participant.status = 'Dead';
-            participant.objectRef = null; // Clear ref as object will be disposed
-            // Cache final score/damage
+            participant.objectRef = null;
             if (victim instanceof Enemy) {
-                participant.score = victim.damageDealt; // or kills if tracking that
+                participant.score = victim.damageDealt;
             } else if (victim === this.game.player) {
                 participant.score = this.game.player.damageDealt;
             }
         }
 
-        // Track individual kills (Helper to update killer's score in real-time)
         if (killer instanceof Enemy) {
-            killer.score++;
-            // Update killer participant score immediately
             const killerP = this.participants.find(p => p.objectRef === killer);
-            if (killerP) killerP.score = killer.damageDealt; // Syncing damageDealt primarily
+            if (killerP) killerP.score = killer.damageDealt;
         }
 
         // Remove from alive tracking
         if (victim.team === 'Player' || victim === this.game.player) {
             this.taskForceAlive.delete(victim);
-
-            // If player died, start spectating
             if (victim === this.game.player) {
-                console.log("Player died! switching to spectator mode.");
-                this.enableSpectatorMode();
+                this.onPlayerDeath(killer);
             }
-
         } else if (victim.team === 'OpFor') {
             this.opForAlive.delete(victim);
         }
 
-        // Update spectator targets if a potential target died
         if (this.isSpectating) {
             this.spectatorController.setTargets(this.getSpectatorTargets());
         }
+    }
+
+    public onPlayerDeath(_killer?: GameObject): void {
+        console.log("Player died! switching to spectator mode.");
+        this.onEnterSpectator();
     }
 
     public registerEntity(_entity: GameObject): void {
@@ -575,18 +583,16 @@ export class TeamDeathmatchGameMode extends GameMode {
 
 
 
-    private enableSpectatorMode(): void {
+    public onEnterSpectator(): void {
         this.isSpectating = true;
         if (this.game.player) {
             this.game.player.isSpectating = true;
         }
-
         this.spectatorController.setTargets(this.getSpectatorTargets());
-
         console.log("Spectator Mode Enabled");
     }
 
-    private getSpectatorTargets(): GameObject[] {
+    public getSpectatorTargets(): GameObject[] {
         const targets: GameObject[] = [];
         this.taskForceAlive.forEach(t => targets.push(t));
         this.opForAlive.forEach(t => targets.push(t));
