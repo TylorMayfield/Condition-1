@@ -372,29 +372,8 @@ export class SoundManager {
      * Play announcer voice using Text-to-Speech (Fallback)
      */
     public playAnnouncer(text: string): void {
-        // ... (existing TTS logic) ...
-         console.log(`[Announcer] "${text}"`);
-
-        // Use built-in browser speech synthesis
-        if ('speechSynthesis' in window) {
-            // Cancel previous speech to avoid queue buildup
-            window.speechSynthesis.cancel();
-
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.volume = this.masterVolume;
-            utterance.rate = 1.1; 
-            utterance.pitch = 0.8;
-
-            const voices = window.speechSynthesis.getVoices();
-            const preferred = voices.find(v => v.name.includes('Google US English')) ||
-                             voices.find(v => v.lang === 'en-US');
-            
-            if (preferred) {
-                utterance.voice = preferred;
-            }
-
-            window.speechSynthesis.speak(utterance);
-        }
+        console.log(`[Announcer] "${text}"`);
+        // TTS removed by user request
     }
 
     /**

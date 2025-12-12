@@ -253,11 +253,11 @@ export class RecastNavigation {
         const agent = this.crowd.addAgent(nearestPoly.nearestPoint, {
             radius: radius,
             height: 2.0,
-            maxAcceleration: 8.0,
+            maxAcceleration: 4.0, // Reduced from 8.0 for smoother starts/stops
             maxSpeed: 5.0,
-            collisionQueryRange: radius * 12.0, // Look ahead ~4.8m
-            pathOptimizationRange: radius * 30.0, // Predict path ~12m ahead
-            separationWeight: 3.0, // Increased separation
+            collisionQueryRange: radius * 12.0, 
+            pathOptimizationRange: radius * 30.0, 
+            separationWeight: 6.0, // Doubled from 3.0 to reduce clustering
             updateFlags: 7, // ANTICIPATE_TURNS | OBSTACLE_AVOIDANCE | SEPARATION
         });
 

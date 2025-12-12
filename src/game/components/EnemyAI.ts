@@ -244,8 +244,15 @@ export class EnemyAI {
         }
 
         // Movement and look direction updates
+        // Movement and look direction updates
         this.movement.update();
         this.updateLookDirection(dt);
+
+        // Tactical Behaviors
+        if (this.state === AIState.Chase || this.state === AIState.Attack || this.state === AIState.Flank) {
+            this.checkJumpCondition();
+            this.checkGrenadeCondition(dt);
+        }
     }
 
     /** Execute RL policy to determine action */
@@ -413,26 +420,87 @@ export class EnemyAI {
         return this.owner.body.position.distanceTo(this.target.body.position);
     }
 
-    private updateLookDirection(_dt: number) {
+    private updateLookDirection(dt: number) {
+        let targetLookPos: THREE.Vector3 | null = null;
+
         if (this.target && this.target.body && (this.state === AIState.Attack || this.state === AIState.Chase)) {
-            if (this.senses.canSee(this.target)) {
-                this.movement.lookAt(new THREE.Vector3(
-                    this.target.body.position.x,
-                    this.target.body.position.y,
-                    this.target.body.position.z
-                ));
-                return;
-            }
-        }
-        if (this.owner.body && this.movement.isMoving()) {
+            // Predict target position slightly
+            const targetVel = this.target.body.velocity;
+            const predictFactor = 0.2; // Predict 200ms ahead
+            targetLookPos = new THREE.Vector3(
+                this.target.body.position.x + targetVel.x * predictFactor,
+                this.target.body.position.y,
+                this.target.body.position.z + targetVel.z * predictFactor
+            );
+        } else if (this.owner.body && this.movement.isMoving()) {
             const vel = this.owner.body.velocity;
             if (vel.lengthSquared() > 0.5) {
-                const lookPos = new THREE.Vector3(
+                targetLookPos = new THREE.Vector3(
                     this.owner.body.position.x + vel.x,
                     this.owner.body.position.y,
                     this.owner.body.position.z + vel.z
                 );
-                this.movement.lookAt(lookPos);
+            }
+        }
+
+        if (targetLookPos) {
+            this.movement.lookAt(targetLookPos); // AIMovement handles the actual smoothing/lerp
+        }
+    }
+
+    private checkJumpCondition() {
+        if (!this.owner.body) return;
+        
+        // 1. Raycast forward at foot level to detect obstacles
+        const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.owner.mesh!.rotation.y);
+        const start = new CANNON.Vec3(this.owner.body.position.x, this.owner.body.position.y + 0.5, this.owner.body.position.z);
+        const end = new CANNON.Vec3(
+            start.x + forward.x * 1.5, 
+            start.y, 
+            start.z + forward.z * 1.5
+        );
+
+        const result = new CANNON.RaycastResult();
+        this.game.world.raycastClosest(start, end, {
+            collisionFilterMask: 1, // Default group (walls/ground)
+            skipBackfaces: true
+        }, result);
+
+        if (result.hasHit) {
+            // 2. Check clear space above obstacle (can we jump over?)
+            // Raycast higher (head level)
+            const highStart = new CANNON.Vec3(start.x, start.y + 1.5, start.z);
+            const highEnd = new CANNON.Vec3(end.x, end.y + 1.5, end.z);
+            const highResult = new CANNON.RaycastResult();
+            this.game.world.raycastClosest(highStart, highEnd, {}, highResult);
+
+            if (!highResult.hasHit) {
+                // Low obstacle detected, high space clear -> JUMP!
+                // Rate limit jumping
+                if (Math.random() < 0.1) { // Don't bunny hop constantly
+                     this.owner.jump();
+                }
+            }
+        }
+    }
+
+    private checkGrenadeCondition(dt: number) {
+        if (!this.target || !(this.owner as any).throwGrenade) return;
+        
+        // Only throw if we haven't thrown recently (simple timer check or RNG)
+        if (Math.random() > 0.01) return; // Low chance per frame
+
+        const dist = this.getDistanceToTarget();
+        
+        // Conditions:
+        // 1. Target within range (10m - 30m)
+        // 2. Target NOT visible (hiding behind cover)
+        // 3. We have a rough idea where they are (recently seen)
+        
+        if (dist > 10 && dist < 30) {
+            if (!this.senses.canSee(this.target)) {
+                 console.log(`[EnemyAI] ${this.owner.name} throwing tactical grenade at hidden target!`);
+                 (this.owner as any).throwGrenade();
             }
         }
     }
