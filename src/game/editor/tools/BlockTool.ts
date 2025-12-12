@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EditorTool } from './EditorTool';
+import type { EditorTool } from './EditorTool';
 import { LevelEditor } from '../LevelEditor';
 import { EditorBrush } from '../EditorBrush';
 
@@ -31,14 +31,14 @@ export class BlockTool implements EditorTool {
         this.isDragging = false;
     }
 
-    public update(dt: number): void {
+    public update(_dt: number): void {
         // No-op
     }
 
-    public onMouseDown(event: MouseEvent): void {
+    public onMouseDown(event: MouseEvent, camera: THREE.Camera, ndc: THREE.Vector2): void {
         if (event.button !== 0) return; // Left click only
 
-        const intersection = this.getGridIntersection(event);
+        const intersection = this.getGridIntersection(camera, ndc);
         if (intersection) {
             this.isDragging = true;
             this.startPoint.copy(intersection).round();
@@ -57,67 +57,22 @@ export class BlockTool implements EditorTool {
         }
     }
 
-    public onMouseMove(event: MouseEvent): void {
+    public onMouseMove(event: MouseEvent, camera: THREE.Camera, ndc: THREE.Vector2): void {
         if (!this.isDragging || !this.currentBrush) return;
 
-        const intersection = this.getGridIntersection(event);
+        const intersection = this.getGridIntersection(camera, ndc);
         if (intersection) {
             const endPoint = intersection.clone().round();
 
             // Calculate min/max coords
             const minX = Math.min(this.startPoint.x, endPoint.x);
-            const maxX = Math.max(this.startPoint.x, endPoint.x);
+            // const maxX = Math.max(this.startPoint.x, endPoint.x);
             const minZ = Math.min(this.startPoint.z, endPoint.z);
-            const maxZ = Math.max(this.startPoint.z, endPoint.z);
+            // const maxZ = Math.max(this.startPoint.z, endPoint.z);
 
-            // Size must be at least 1 unit
-            // If dragging from 0 to 0, size is 1 (block [0,1])
-            // If dragging from 0 to 2, size is 2 (blocks [0,1], [1,2])? 
-            // Wait, round() goes to nearest integer. 0.1 -> 0. 
-            // If dragging, we usually target grid corners integers.
-            // If I click at 0.5, I get 1 (round). Or 0.
-            // Let's assume grid cells.
-
-            // Determine dimensions
-            // If start=0, end=0.  Length = |0-0| = 0? We want 1.
-            // If start=0, end=1.  Length = 1.
-
-            // We want brush to cover from min to max.
-            // If points are inclusive? 
-            // Typically "drag to" means the endpoint is included. 
-            // If both are same, size is 1 block.
-            // If different, size is diff + direction?
-
-            // Simple logic:
-            // Width = (maxX - minX) if != 0, else 1
-            // But this assumes we are strictly on grid lines.
-
-            // Let's assume start and end are identifying CELLS.
-            // start=0 -> Cell 0. end=1 -> Cell 1.
-            // Range [0, 2] (size 2).
-            // So width = abs(end - start) + 1 ?
-            // If start=0, end=1. Width = 2 ? 
-            // Usually dragging from 0 to 1 implies 0->1.
-
-            // Let's stick to simple abs diff for now, min 1.
             const sX = Math.abs(endPoint.x - this.startPoint.x) || 1;
             const sZ = Math.abs(endPoint.z - this.startPoint.z) || 1;
             const height = 4;
-
-            // Re-position
-            // Center = min + size/2
-            // BUT: If I dragged "Backwards", min is the new point.
-            // However, we calculated minX/maxX independently.
-
-            // If start=0, end=3. min=0. Size=3? 
-            // If start=0, end=3 (3 blocks: 0, 1, 2) -> 3.
-
-            // Correct logic for grid selection:
-            // The brush should effectively bound the selected grid points.
-            // If I selected point 0 and point 3.
-            // I probably want to span from 0 to 3.
-
-            // Let's just use the calculated size.
 
             this.currentBrush.resize(new THREE.Vector3(sX, height, sZ));
             this.currentBrush.mesh.position.set(
@@ -128,7 +83,7 @@ export class BlockTool implements EditorTool {
         }
     }
 
-    public onMouseUp(event: MouseEvent): void {
+    public onMouseUp(_event: MouseEvent, _camera: THREE.Camera, _ndc: THREE.Vector2): void {
         if (!this.isDragging) return;
         this.isDragging = false;
 
@@ -139,16 +94,17 @@ export class BlockTool implements EditorTool {
         }
     }
 
-    public onKeyDown(event: KeyboardEvent): void {
+    public onKeyDown(_event: KeyboardEvent): void {
         // No-op
     }
 
     private getGridIntersection(event: MouseEvent): THREE.Vector3 | null {
         const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        );
+
+        // Use View3D for reference since tools allow dragging outside
+        // Ideal: Use the viewport that started the drag, but we scope to 3D for now.
+        const ndc = this.editor.getNDC(this.editor.ui.view3d, event);
+        const mouse = new THREE.Vector2(ndc.x, ndc.y);
 
         raycaster.setFromCamera(mouse, this.editor.getGame().camera);
 

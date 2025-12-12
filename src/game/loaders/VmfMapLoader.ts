@@ -12,12 +12,15 @@ export class VmfMapLoader {
 
     public async load(mapName: string): Promise<void> {
         const fileName = mapName.endsWith('.vmf') ? mapName : `${mapName}.vmf`;
-        const nameWithoutExt = fileName.replace('.vmf', '');
+
 
         try {
-            // Import the VMF file as raw string
-            const vmfModule = await import(`../maps/${nameWithoutExt}.vmf?raw`);
-            const content = vmfModule.default || vmfModule;
+            // Fetch map from public/maps directory
+            const response = await fetch(`maps/${fileName}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch map: ${response.statusText}`);
+            }
+            const content = await response.text();
 
             // Parse the VMF
             const mapData = VmfParser.parse(content);
@@ -43,16 +46,32 @@ export class VmfMapLoader {
     }
 
     private setupLighting() {
-        // Strong ambient light for base brightness
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-        this.game.scene.add(ambientLight);
+        // Reuse existing lights to avoid duplication and double shadow cost
+        const gameWithLights = this.game as any;
 
-        // Hemisphere for sky/ground lighting
-        const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0xE6CFA1, 2.0);
+        // 1. Ambient / Hemisphere
+        // Restore Hemisphere Light for better ambient coverage (VMF maps need more light)
+        // Replicating Game.ts default: Sky(White) -> Ground(Dark)
+        // GLOBAL ILLUMINATION: High intensity ambient to light up the shadows cheaply
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x555555, 2.5);
+        hemiLight.position.set(0, 50, 0);
         this.game.scene.add(hemiLight);
 
-        // Directional sun light
-        const sunLight = new THREE.DirectionalLight(0xffffff, 3.5);
+        // 2. Directional Sun
+        let sunLight = gameWithLights.mainDirectionalLight;
+        if (!sunLight) {
+            console.warn('Main Directional Light not found, creating new one.');
+            sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            gameWithLights.mainDirectionalLight = sunLight;
+        }
+
+        // IMPORTANT: Ensure the light is actually IN the scene (LevelGenerator clears it)
+        if (sunLight.parent !== this.game.scene) {
+            this.game.scene.add(sunLight);
+        }
+
+        // Configure Sun for this Map
+        sunLight.intensity = 3.0; // Bright sun
         sunLight.position.set(50, 100, 50);
         sunLight.castShadow = true;
 
@@ -63,11 +82,19 @@ export class VmfMapLoader {
         sunLight.shadow.camera.bottom = -100;
         sunLight.shadow.camera.near = 0.5;
         sunLight.shadow.camera.far = 500;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
-        sunLight.shadow.bias = -0.0001;
+        // Optimization: Reduced shadow map size to save processing on "complexities"
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
 
-        this.game.scene.add(sunLight);
+        // Fix Shadow Acne (Spackly Walls)
+        sunLight.shadow.bias = -0.0005;
+        sunLight.shadow.normalBias = 0.05;
+
+        // Force update
+        if (sunLight.shadow.map) {
+            sunLight.shadow.map.dispose();
+            sunLight.shadow.map = null;
+        }
     }
 
     private setupAtmosphere() {
@@ -152,11 +179,11 @@ export class VmfMapLoader {
 
     public static async check(mapName: string): Promise<boolean> {
         const fileName = mapName.endsWith('.vmf') ? mapName : `${mapName}.vmf`;
-        const nameWithoutExt = fileName.replace('.vmf', '');
+
 
         try {
-            await import(`../maps/${nameWithoutExt}.vmf?raw`);
-            return true;
+            const response = await fetch(`maps/${fileName}`, { method: 'HEAD' });
+            return response.ok;
         } catch {
             return false;
         }

@@ -3,13 +3,13 @@ import type {
     Brush,
     BrushType,
     BrushMaterialType,
-    BrushSurface,
+
     BrushMapEntity,
     EntityType,
     Team,
     AIBehavior,
 } from './BrushMap';
-import { BrushMaterial } from './BrushMap';
+
 
 /**
  * Parser for .brushmap files.

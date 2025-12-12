@@ -28,18 +28,19 @@ export class PostProcessingManager {
         // scene is only used in constructor
 
         // Configure renderer for post-processing
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        
+        // Optimization: Force 1x pixel ratio to prevent retina lag.
+        renderer.setPixelRatio(1);
+
         // Create composer
         this.composer = new EffectComposer(renderer);
-        
+
         // Render pass - renders the scene
         this.renderPass = new RenderPass(scene, camera);
         this.composer.addPass(this.renderPass);
 
         // Screen Space Reflections Pass (Heavier, disabled by default for performance)
         this.ssrPass = new SSRPass(scene, camera, renderer);
-        this.ssrPass.enabled = false; 
+        this.ssrPass.enabled = false;
         this.composer.addPass(this.ssrPass);
 
         // Motion Blur Pass
@@ -91,7 +92,7 @@ export class PostProcessingManager {
 
     public setSize(width: number, height: number): void {
         this.composer.setSize(width, height);
-        
+
         // Update FXAA resolution
         const pixelRatio = this.renderer.getPixelRatio();
         this.fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * pixelRatio);

@@ -11,11 +11,14 @@ import type { INavigationService } from '../services/NavigationService';
  * Encapsulates per‑bot navigation state and logic.
  * It delegates path‑finding to an INavigationService implementation
  * and controls the AIMovement component.
+ * 
+ * NOTE: This component does NOT own its own AIMovement instance.
+ * It uses the shared instance from EnemyAI to avoid duplicate force calculations.
  */
 export class NavigationComponent {
   private game: Game;
   private owner: Enemy;
-  private movement: AIMovement;
+  private movement: AIMovement | null = null; // Lazy-loaded reference to EnemyAI's movement
   private navService: INavigationService;
 
   // Stuck‑recovery state (mirrors logic previously in EnemyAI)
@@ -25,28 +28,42 @@ export class NavigationComponent {
   private recoveryTimer: number = 0;
   private stuckCount: number = 0;
 
+  // Performance: Throttle obstacle avoidance raycasts
+  private avoidanceTimer: number = 0;
+  private readonly avoidanceInterval: number = 0.1; // Check every 100ms
+
   constructor(game: Game, owner: Enemy, navService: INavigationService) {
     this.game = game;
     this.owner = owner;
     this.navService = navService;
-    this.movement = new AIMovement(owner);
+    // Don't create AIMovement here - use the shared instance from owner.ai.movement
+  }
+
+  /** Get the shared movement instance from EnemyAI */
+  private getMovementInstance(): AIMovement | null {
+    if (!this.movement && this.owner.ai) {
+      this.movement = this.owner.ai.movement;
+    }
+    return this.movement;
   }
 
   /** Move the bot to a target point using the navigation service. */
   public moveTo(target: THREE.Vector3): void {
     // Request a path; if a path is returned we could store it for future use.
     // For now we simply forward the point to the movement component.
-    this.movement.moveTo(target);
+    const movement = this.getMovementInstance();
+    if (movement) movement.moveTo(target);
   }
 
   /** Stop current movement. */
   public stop(): void {
-    this.movement.stop();
+    const movement = this.getMovementInstance();
+    if (movement) movement.stop();
   }
 
   /** Public accessor for the underlying movement component. */
-  public getMovement(): AIMovement {
-    return this.movement;
+  public getMovement(): AIMovement | null {
+    return this.getMovementInstance();
   }
 
   /** Called each tick – handles stuck detection and obstacle avoidance. */
@@ -56,9 +73,10 @@ export class NavigationComponent {
       return;
     }
 
-    if (this.movement.isMoving()) {
+    const movement = this.getMovementInstance();
+    if (movement && movement.isMoving()) {
       this.checkStuck(dt);
-      this.predictiveObstacleAvoidance();
+      this.predictiveObstacleAvoidance(dt);
     } else {
       this.stuckTimer = 0;
     }
@@ -162,7 +180,12 @@ export class NavigationComponent {
   }
 
   /** Simple forward‑looking obstacle avoidance – triggers alternate path. */
-  private predictiveObstacleAvoidance(): void {
+  private predictiveObstacleAvoidance(dt: number): void {
+    // Performance: Throttle expensive raycast
+    this.avoidanceTimer += dt;
+    if (this.avoidanceTimer < this.avoidanceInterval) return;
+    this.avoidanceTimer = 0;
+
     if (!this.owner.body) return;
     const vel = this.owner.body.velocity;
     if (vel.length() < 0.5) return;

@@ -21,7 +21,7 @@ menuSystem.setLevelGenerator(levelGen);
 
 // Load default map as background (optional, or wait for user to click New Game)
 // We'll load it so there's something to see behind the transparent menu
-const defaultMap = 'killhouse';
+const defaultMap = 'generated_test';
 levelGen.loadMap(defaultMap).catch(() => {
     console.warn('Failed to load map, using random generation');
     levelGen.generate();
@@ -30,6 +30,7 @@ levelGen.loadMap(defaultMap).catch(() => {
 // Inject HUD
 import hudHtml from './hud.html?raw';
 const hudContainer = document.createElement('div');
+hudContainer.id = 'game-hud';
 hudContainer.innerHTML = hudHtml;
 document.body.appendChild(hudContainer);
 

@@ -101,6 +101,14 @@ export class EnemyAI {
     private registrationTimeout: any = null;
     private recoveryTimer: number = 0;
 
+    // Performance: Throttle expensive cone detection raycasts
+    private coneCheckTimer: number = 0;
+    private readonly coneCheckInterval: number = 0.15; // Check every 150ms
+
+    // Performance: Throttle jump condition raycasts
+    private jumpCheckTimer: number = 0;
+    private readonly jumpCheckInterval: number = 0.2; // Check every 200ms
+
     // RL Policy (optional - if set, overrides FSM)
     public rlPolicy: import('../rl/RLPolicy').IRLPolicy | null = null;
     public useRLPolicy: boolean = false;
@@ -136,7 +144,7 @@ export class EnemyAI {
             new AdvanceState(),
             new RetreatState(),
         ]);
-        this.stateMachine.initialize(AIStateId.Patrol);
+        this.stateMachine.initialize(AIStateId.Idle);
 
         // Unique entity ID for crowd tracking
         this.entityId = EnemyAI.nextEntityId++;
@@ -171,7 +179,7 @@ export class EnemyAI {
         const agent = this.game.recastNav.addAgent(this.entityId, pos, 0.4);
         if (agent) {
             this.useRecast = true;
-            console.log(`[EnemyAI] Entity ${this.entityId} registered with Recast crowd`);
+            // Registered with Recast crowd
         } else {
             console.warn(`[EnemyAI] Failed to register entity ${this.entityId}. Retrying...`);
             this.registrationTimeout = setTimeout(() => this.tryRegisterWithCrowd(), 1000);
@@ -280,7 +288,9 @@ export class EnemyAI {
             crouch: (this.owner as any).isCrouching ? 1 : 0,
             grenades: (this.owner as any).grenades ?? 0,
             team: this.owner.team === 'TaskForce' ? 0 : 1,
-            visionGrid: this.buildVisionGrid(), 
+            visionGrid: this.buildVisionGrid(),
+            coverDistance: 1, // Default (no cover)
+            isUnderFire: this.owner.isUnderFire ? 1 : 0,
         };
     }
 
@@ -293,7 +303,7 @@ export class EnemyAI {
         for (const go of gameObjects) {
             if (go === this.owner) continue;
             if (!(go instanceof Enemy)) continue; // Only see other bots for now (or maybe Player?)
-            
+
             const otherPos = go.body?.position;
             if (!otherPos) continue;
 
@@ -354,25 +364,31 @@ export class EnemyAI {
 
 
     private updateTargeting(dt: number) {
-        // 1. Cone Detection (Short range, "Slice the Pie")
-        // Scan 3 rays, 45 degrees, 15 meters
-        const coneHits = this.coneDetector.castCone(15, 45, 3);
-        if (coneHits.length > 0) {
-            // Process hits to see if we found an enemy
-            for (const result of coneHits) {
-                if (result.body && (result.body as any).gameObject) {
-                    const go = (result.body as any).gameObject as GameObject;
-                    if (go.team !== this.owner.team && go.team !== 'Neutral') {
+        // Performance: Throttle expensive cone detection (3 raycasts per call)
+        this.coneCheckTimer += dt;
+        const shouldCheckCone = this.coneCheckTimer >= this.coneCheckInterval;
+        if (shouldCheckCone) {
+            this.coneCheckTimer = 0;
+            // 1. Cone Detection (Short range, "Slice the Pie")
+            // Scan 3 rays, 45 degrees, 15 meters
+            const coneHits = this.coneDetector.castCone(15, 45, 3);
+            if (coneHits.length > 0) {
+                // Process hits to see if we found an enemy
+                for (const result of coneHits) {
+                    if (result.body && (result.body as any).gameObject) {
+                        const go = (result.body as any).gameObject as GameObject;
+                        if (go.team !== this.owner.team && go.team !== 'Neutral') {
 
-                        if (this.senses.canSee(go)) {
-                            // Found target in cone!
-                            this.target = go;
-                            this.scanTimer = 0;
-                            if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
-                                console.log(`[AI] ${this.owner.name} spotted target via Cone Scan!`);
-                                this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
+                            if (this.senses.canSee(go)) {
+                                // Found target in cone!
+                                this.target = go;
+                                this.scanTimer = 0;
+                                if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
+                                    // Target spotted via cone scan
+                                    this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
+                                }
+                                return; // Found one, stop scanning
                             }
-                            return; // Found one, stop scanning
                         }
                     }
                 }
@@ -422,6 +438,7 @@ export class EnemyAI {
 
     private updateLookDirection(dt: number) {
         let targetLookPos: THREE.Vector3 | null = null;
+        let isAimingAtTarget = false;
 
         if (this.target && this.target.body && (this.state === AIState.Attack || this.state === AIState.Chase)) {
             // Predict target position slightly
@@ -432,6 +449,7 @@ export class EnemyAI {
                 this.target.body.position.y,
                 this.target.body.position.z + targetVel.z * predictFactor
             );
+            isAimingAtTarget = true;
         } else if (this.owner.body && this.movement.isMoving()) {
             const vel = this.owner.body.velocity;
             if (vel.lengthSquared() > 0.5) {
@@ -444,19 +462,58 @@ export class EnemyAI {
         }
 
         if (targetLookPos) {
-            this.movement.lookAt(targetLookPos); // AIMovement handles the actual smoothing/lerp
+            // 1. Set Yaw (Movement/Body)
+            this.movement.lookAt(targetLookPos);
+
+            // 2. Set Pitch (Head/Aiming)
+            // Only adjust pitch if we are actually aiming at a target or look pos
+            if (this.owner.mesh && this.owner.head) {
+                const headPos = this.owner.head.getWorldPosition(new THREE.Vector3());
+
+                // Calculate Pitch
+                const dx = targetLookPos.x - headPos.x;
+                const dz = targetLookPos.z - headPos.z;
+                const distH = Math.sqrt(dx * dx + dz * dz);
+                const dy = targetLookPos.y - headPos.y;
+
+                // Pitch: positive X is DOWN in Three.js standard (usually)
+                // If target is above (dy > 0), we want to look UP (negative rotation)
+                // atan2(dy, distH) gives angle from horizon up/down.
+                const pitchAngle = Math.atan2(dy, distH);
+
+                // Apply standard Three.js orientation correction (Looking down -Z?)
+                // If model faces +Z, and rotation +X is down...
+                // Let's assume standard rig: +Y Up, +Z Forward.
+                // To look up (+Y), we rotate -X.
+                // So target pitch = -pitchAngle.
+
+                // However, we need to pass this to owner.setLookAngles which handles clamping/assignment
+                // Retrieve current Yaw from mesh (set by movement.lookAt)
+                const currentYaw = this.owner.mesh.rotation.y;
+
+                // If just moving, keep head level (pitch 0)
+                // If aiming at target, use calculated pitch
+                const targetPitch = isAimingAtTarget ? -pitchAngle : 0;
+
+                this.owner.setLookAngles(currentYaw, targetPitch);
+            }
         }
     }
 
     private checkJumpCondition() {
+        // Performance: Throttle expensive raycasts
+        this.jumpCheckTimer += 0.016; // Approximate fixed dt
+        if (this.jumpCheckTimer < this.jumpCheckInterval) return;
+        this.jumpCheckTimer = 0;
+
         if (!this.owner.body) return;
-        
+
         // 1. Raycast forward at foot level to detect obstacles
         const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.owner.mesh!.rotation.y);
         const start = new CANNON.Vec3(this.owner.body.position.x, this.owner.body.position.y + 0.5, this.owner.body.position.z);
         const end = new CANNON.Vec3(
-            start.x + forward.x * 1.5, 
-            start.y, 
+            start.x + forward.x * 1.5,
+            start.y,
             start.z + forward.z * 1.5
         );
 
@@ -478,7 +535,7 @@ export class EnemyAI {
                 // Low obstacle detected, high space clear -> JUMP!
                 // Rate limit jumping
                 if (Math.random() < 0.1) { // Don't bunny hop constantly
-                     this.owner.jump();
+                    this.owner.jump();
                 }
             }
         }
@@ -486,28 +543,28 @@ export class EnemyAI {
 
     private checkGrenadeCondition(dt: number) {
         if (!this.target || !(this.owner as any).throwGrenade) return;
-        
+
         // Only throw if we haven't thrown recently (simple timer check or RNG)
         if (Math.random() > 0.01) return; // Low chance per frame
 
         const dist = this.getDistanceToTarget();
-        
+
         // Conditions:
         // 1. Target within range (10m - 30m)
         // 2. Target NOT visible (hiding behind cover)
         // 3. We have a rough idea where they are (recently seen)
-        
+
         if (dist > 10 && dist < 30) {
             if (!this.senses.canSee(this.target)) {
-                 console.log(`[EnemyAI] ${this.owner.name} throwing tactical grenade at hidden target!`);
-                 (this.owner as any).throwGrenade();
+                // Throwing tactical grenade
+                (this.owner as any).throwGrenade();
             }
         }
     }
 
     public onHearSound(pos: THREE.Vector3) {
         if (this.state === AIState.Chase || this.state === AIState.Attack) return;
-        console.log(`[EnemyAI] ${this.owner.name} heard sound at ${pos.toArray()}`);
+        // Heard sound, investigating
         this.blackboard.heardSound(pos, 1);
         this.reactionTimer = this.reactionDelay + Math.random() * 0.1;
     }

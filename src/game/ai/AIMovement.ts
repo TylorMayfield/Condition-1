@@ -90,10 +90,7 @@ export class AIMovement {
         if (this.useRecast && this.game.recastNav && this.owner.ai) {
             const agentVel = this.game.recastNav.getAgentVelocity(this.owner.ai.entityId);
             if (agentVel) {
-                // DEBUG: Log velocity occasionally
-                if (Math.random() < 0.01 && agentVel.length() > 0.1) {
-                    console.log(`[AIMovement] Agent ${this.owner.ai.entityId} Vel: ${agentVel.toArray()}`);
-                }
+                // Debug logging removed for performance
 
                 // Apply agent velocity to physics body
                 // Recast Agent speed is already governed by its config, but we might want to override max speed based on run/walk?
@@ -164,7 +161,7 @@ export class AIMovement {
                     }
                 }
             } else {
-                if (Math.random() < 0.01) console.log(`[AIMovement] Agent ${this.owner.ai.entityId} has NO velocity from Recast`);
+                // Debug logging removed for performance
             }
         } else if (this.currentTarget) {
             // Fallback direct movement (if Recast failed or not ready)

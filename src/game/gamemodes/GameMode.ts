@@ -10,15 +10,20 @@ export abstract class GameMode {
 
     public aiEnabled: boolean = true;
 
+    // Movement control hook
+    public canPlayerMove(): boolean {
+        return true;
+    }
+
     public abstract init(): void;
     public abstract update(dt: number): void;
 
     // Optional hooks
-    public onEntityDeath(victim: GameObject, killer?: GameObject): void { }
+    public onEntityDeath(_victim: GameObject, _killer?: GameObject): void { }
     public onPlayerExtract(): void { }
 
     // Entity management hook (so Spawners can register enemies to the mode)
-    public registerEntity(entity: GameObject): void { }
+    public registerEntity(_entity: GameObject): void { }
 
     public abstract getScoreboardData(): ScoreData[];
 }

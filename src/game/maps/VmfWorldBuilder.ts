@@ -104,27 +104,23 @@ export class VmfWorldBuilder {
                         visualChunkMap.set(chunkKey, new Map());
                     }
                     const matMap = visualChunkMap.get(chunkKey)!;
-                    const key = isDisplacement ? `${material}_DISP` : material;
+
+                    // OPTIMIZATION: Group by Material Type instead of raw name
+                    // Resolve the type now to use as the batching key
+                    const type = this.resolveTextureType(material);
+                    const key = isDisplacement ? `${type}_DISP` : type;
 
                     if (!matMap.has(key)) matMap.set(key, []);
                     matMap.get(key)!.push(geometry);
                 }
 
                 // 2. Physics (Merged by chunk, ignore material)
-                // Note: We need a SEPARATE geometry copy for physics if it was used in visuals?
-                // Actually, if we merge them later, cloning is safer or we use the same reference if not modified further.
-                // But visuals will be merged into a visual mesh. Physics into a physics mesh.
-                // BufferGeometryUtils.mergeGeometries creates a NEW geometry. So sharing the input geometry is fine.
                 const isPhysicsMaterial = !PHYSICS_IGNORED.some(ign => matUpper.includes(ign));
-                // Also ensure it's not a non-solid brush (handled by caller logic usually, but here filtering by texture)
 
                 if (enablePhysicsForThisSolid && isPhysicsMaterial) {
                     if (!physicsChunkMap.has(chunkKey)) {
                         physicsChunkMap.set(chunkKey, []);
                     }
-                    // Clone because we might merge differently? No, mergeGeometries doesn't consume inputs. 
-                    // But to be safe against side effects (like disposal).
-                    // Actually, if we use the same geometry instance in two merges, it is fine.
                     physicsChunkMap.get(chunkKey)!.push(geometry);
                 }
             }
@@ -145,17 +141,13 @@ export class VmfWorldBuilder {
         for (const entity of mapData.entities) {
             if (entity.solids && entity.solids.length > 0) {
                 const isIllusionary = entity.classname === 'func_illusionary';
-                // For func_brush, 'solidity' property determines if it's solid.
-                // 0 = Solid, 1 = Nonsolid, 2 = Trigger.
-                // We want physics if solidity is 0 (Solid) or undefined (default solid).
                 const isNonSolidBrush = entity.classname === 'func_brush' && entity.properties['solidity'] === '1';
 
-                // Triggers and Zones MUST be non-solid for physics
                 const isTrigger = entity.classname.startsWith('trigger_') ||
                     entity.classname === 'func_buyzone' ||
                     entity.classname === 'func_bomb_target' ||
                     entity.classname === 'func_hostage_rescue' ||
-                    entity.classname === 'func_water'; // Water is non-solid for standard RigidBody collision (handled differently)
+                    entity.classname === 'func_water';
 
                 const enablePhysicsForThisEntity = !isIllusionary && !isNonSolidBrush && !isTrigger;
 
@@ -172,15 +164,17 @@ export class VmfWorldBuilder {
             for (const [matKey, geometries] of matMap) {
                 if (geometries.length === 0) continue;
 
+                // matKey is now the TYPE (e.g. 'concrete' or 'concrete_DISP')
                 const isDisplacement = matKey.endsWith('_DISP');
-                const matName = isDisplacement ? matKey.replace('_DISP', '') : matKey;
+                const matType = isDisplacement ? matKey.replace('_DISP', '') : matKey;
 
                 const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
                 if (merged) {
                     merged.computeVertexNormals();
                     merged.computeBoundingSphere(); // Critical for frustum culling
 
-                    let material = this.getMaterialForTexture(matName);
+                    // Get material for the TYPE directly
+                    let material = this.getMaterialForType(matType);
 
                     // If displacement, clone material to apply polygon offset
                     if (isDisplacement) {
@@ -242,8 +236,8 @@ export class VmfWorldBuilder {
 
             if (indices.length >= 3) {
                 const shape = new CANNON.Trimesh(vertices, indices);
-                const body = new CANNON.Body({ 
-                    mass: 0, 
+                const body = new CANNON.Body({
+                    mass: 0,
                     shape: shape,
                     collisionFilterGroup: 1, // World Group
                     collisionFilterMask: -1 // Collide with everything
@@ -256,24 +250,19 @@ export class VmfWorldBuilder {
 
     }
 
-    private getMaterialForTexture(textureName: string): THREE.Material {
-        if (this.materialsCache.has(textureName)) {
-            return this.materialsCache.get(textureName)!;
-        }
-
+    private resolveTextureType(textureName: string): string {
         // FUZZY MATCHING LOGIC
         const lowerName = textureName.toLowerCase();
-        let matchedType = 'concrete'; // default
 
         // Define keywords mapping to Dev Texture Types
         const keywords: Record<string, string> = {
             'concrete': 'concrete',
-            'crete': 'concrete', // "ducrt" matches "crt" so be careful. "DUSANDCRETE"
+            'crete': 'concrete',
             'cement': 'concrete',
             'floor': 'concrete',
             'wood': 'wood',
             'crate': 'crate',
-            'crt': 'crate', // e.g. DUCRTLRG
+            'crt': 'crate',
             'box': 'crate',
             'brick': 'brick',
             'metal': 'metal',
@@ -282,7 +271,7 @@ export class VmfWorldBuilder {
             'wall': 'wall',
             'stone': 'stone',
             'rock': 'stone',
-            'aaatrigger': 'glass', // triggers often semi-transparent in dev
+            'aaatrigger': 'glass',
             'glass': 'glass',
             'window': 'glass',
             'grass': 'grass',
@@ -298,47 +287,22 @@ export class VmfWorldBuilder {
 
         for (const [key, type] of Object.entries(keywords)) {
             if (lowerName.includes(key)) {
-                matchedType = type;
-                // Don't break immediately, let's see if we can prioritise?
-                // Actually first match is fine for now if list is ordered roughly by specificity.
-                // But 'concrete' is very generic.
-                // 'DUSANDCRETE' contains 'sand' and 'crete'.
-                // If 'crete' is first, it becomes concrete. If 'sand' is first, it becomes sand.
-                // Let's rely on the order in the object above.
-                break;
+                return type;
             }
         }
 
-        // Use DevTextureGenerator
-        // We can import it dynamically or assume it's available via global/import
-        // Since we are in the same project structure, let's import it at top of file
-        // (We need to add the import statement separately or inline the texture generation if simple)
-        // Ideally we use the Generator. 
+        return 'concrete'; // Default
+    }
 
-        // Use the existing one from BrushMapRenderer?
-        // Let's create a new util import in the file imports section.
-
-        // Placeholder for now: assuming default material with color
-        // Actually, we should use the DevTextureGenerator.
-        // Since I can't easily add the import in this REPLACEMENT block without changing the top of the file,
-        // I will use a simple color fallback HERE, and then recommend adding the import.
-        // WAIT, I can modify the whole file or just use the existing static method if I added the import.
-
-        // Let's use the DevTextureGenerator
-        // I will assume the import is added in a separate step or I will add it now if possible.
-        // It's better to update the IMPORTS in a separate call or replace the whole file content if needed.
-        // For this block, I will assume `DevTextureGenerator` is imported.
-
-        // See 'BrushMapRenderer.ts' for usage
-        // const texture = DevTextureGenerator.getTexture(matchedType, ...);
-
-        // Note: usage of DevTextureGenerator requires import.
-        // I will proceed assuming I will add the import next.
+    private getMaterialForType(type: string): THREE.Material {
+        if (this.materialsCache.has(type)) {
+            return this.materialsCache.get(type)!;
+        }
 
         // Material Creation
         let mat: THREE.Material;
 
-        if (matchedType === 'glass') {
+        if (type === 'glass') {
             // Simplified Glass (Standard Material)
             mat = new THREE.MeshStandardMaterial({
                 color: 0x66aaff, // Blue-ish tint
@@ -350,12 +314,12 @@ export class VmfWorldBuilder {
             });
         } else {
             // Generate texture
-            const tex = DevTextureGenerator.getTexture(matchedType, {
-                text: matchedType.toUpperCase(),
+            const tex = DevTextureGenerator.getTexture(type, {
+                text: type.toUpperCase(),
                 width: 512,
                 height: 512,
                 gridSize: 64,
-                color: this.getColorForType(matchedType)
+                color: this.getColorForType(type)
             });
 
             mat = new THREE.MeshStandardMaterial({
@@ -366,7 +330,7 @@ export class VmfWorldBuilder {
             });
         }
 
-        this.materialsCache.set(textureName, mat);
+        this.materialsCache.set(type, mat);
         return mat;
     }
 

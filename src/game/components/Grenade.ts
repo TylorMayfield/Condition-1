@@ -14,7 +14,7 @@ export class Grenade {
 
     constructor(game: Game, position: THREE.Vector3, velocity: THREE.Vector3) {
         this.game = game;
-        
+
         // Visual
         const geo = new THREE.SphereGeometry(0.1, 16, 16);
         const mat = new THREE.MeshStandardMaterial({ color: 0x005500, roughness: 0.8 });
@@ -34,7 +34,7 @@ export class Grenade {
         this.body.angularVelocity.set(Math.random() * 10, Math.random() * 10, Math.random() * 10);
         this.body.linearDamping = 0.1;
         this.body.angularDamping = 0.1;
-        
+
         this.game.world.addBody(this.body);
 
         this.game.addTickCallback(this.update.bind(this));
@@ -66,7 +66,7 @@ export class Grenade {
         // Sound
         // this.game.soundManager.playExplosion(explosionPos); 
         // Need to implement playExplosion in SoundManager, for now generic sound or log
-        console.log("BOOM! at " + explosionPos.toArray());
+        // Grenade exploded
 
         // Physics Force & Damage
         const bodies = this.game.world.bodies; // Access all bodies
@@ -85,7 +85,7 @@ export class Grenade {
                 if (go && 'takeDamage' in go) {
                     const dmg = Math.floor((1 - (dist / this.radius)) * this.damage);
                     if (dmg > 0) {
-                         (go as any).takeDamage(dmg);
+                        (go as any).takeDamage(dmg);
                     }
                 }
             }
@@ -104,7 +104,7 @@ export class Grenade {
         const light = new THREE.PointLight(0xffaa00, 5, 10);
         light.position.copy(pos);
         this.game.scene.add(light);
-        
+
         // Particle/Geometry burst
         const geom = new THREE.SphereGeometry(0.5, 16, 16);
         const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 1 });

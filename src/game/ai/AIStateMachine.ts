@@ -159,7 +159,7 @@ export class AIStateMachine {
             newHandler.enter(this.ai);
         }
 
-        console.log(`[AI-FSM] ${this.ai.owner.name}: ${getStateName(oldState)} -> ${getStateName(newState)} (${reason})`);
+        // State transition logged for debugging (removed for performance)
     }
 
     /**
@@ -179,7 +179,7 @@ export class AIStateMachine {
         const timeout = getStateTimeout(this.currentState);
         if (timeout > 0 && this.stateTime > timeout) {
             const timeoutTarget = getStateTimeoutTarget(this.currentState);
-            console.log(`[AI-FSM] ${this.ai.owner.name}: State timeout, transitioning to ${getStateName(timeoutTarget)}`);
+            // State timeout - transitioning
             this.executeTransition(timeoutTarget, 'timeout');
             return;
         }

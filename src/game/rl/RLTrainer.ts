@@ -58,8 +58,8 @@ export class RLTrainer {
                 tf.layers.dense({ inputShape: [totalInputSize], units: 128, activation: 'relu' }),
                 tf.layers.dense({ units: 128, activation: 'relu' }),
                 tf.layers.dense({ units: 64, activation: 'relu' }),
-                // Output: moveX, moveZ, yaw, pitch, fire, crouch, grenade, jump, sprint (9 total)
-                tf.layers.dense({ units: 9, activation: 'tanh' })
+                // Output: moveX, moveZ, yaw, pitch, fire, crouch, grenade, jump, sprint, lean (10 total)
+                tf.layers.dense({ units: 10, activation: 'tanh' })
             ]
         });
 
@@ -130,7 +130,8 @@ export class RLTrainer {
             crouchToggle: actionValues[5] > 0.5 ? 1 : 0,
             throwGrenade: actionValues[6] > 0.8 ? 1 : 0,
             jump: actionValues[7] > 0.8 ? 1 : 0,
-            sprint: actionValues[8] > 0.5 ? 1 : 0
+            sprint: actionValues[8] > 0.5 ? 1 : 0,
+            lean: actionValues[9] !== undefined ? Math.max(-1, Math.min(1, actionValues[9] + (Math.random() - 0.5) * noise)) : 0
         };
 
         // Approximate log probability (simplified)
@@ -160,7 +161,8 @@ export class RLTrainer {
             action: [
                 action.moveX, action.moveZ, action.yaw / Math.PI, action.pitch / (Math.PI / 2),
                 action.fire, action.crouchToggle, action.throwGrenade,
-                action.jump, action.sprint
+                action.jump, action.sprint,
+                action.lean
             ],
             reward,
             nextObs: this.obsToArray(nextObs),
@@ -286,7 +288,8 @@ export class RLTrainer {
             crouchToggle: Math.random() > 0.95 ? 1 : 0,
             throwGrenade: Math.random() > 0.99 ? 1 : 0,
             jump: Math.random() > 0.9 ? 1 : 0,
-            sprint: Math.random() > 0.5 ? 1 : 0
+            sprint: Math.random() > 0.5 ? 1 : 0,
+            lean: Math.random() * 2 - 1
         };
     }
 

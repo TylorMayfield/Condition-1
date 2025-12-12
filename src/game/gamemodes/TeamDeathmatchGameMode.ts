@@ -98,10 +98,10 @@ export class TeamDeathmatchGameMode extends GameMode {
 
             // Update HUD countdown display
             const secondsLeft = Math.ceil(this.countdownTimer);
-            
+
             // Announce 5, 4, 3, 2, 1
             if (secondsLeft <= 5 && Math.ceil(this.countdownTimer + dt) > secondsLeft) {
-                 this.game.soundManager.playAnnouncerFile(`${secondsLeft}.mp3`);
+                this.game.soundManager.playAnnouncerFile(`${secondsLeft}.mp3`);
             }
 
             (this.game.hudManager as any).showCountdown(secondsLeft);
@@ -370,7 +370,7 @@ export class TeamDeathmatchGameMode extends GameMode {
             // const message = `${winner} WINS`;
             console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
             (this.game.hudManager as any).showRoundResult(winner, `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
-            
+
             // Announce Winner
             const winText = winner === 'TaskForce' ? "Task Force Wins" : "Opposing Force Wins";
             this.game.soundManager.playAnnouncer(winText);
@@ -378,7 +378,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         } else {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
             (this.game.hudManager as any).showRoundResult(null, "No survivors");
-            
+
             this.game.soundManager.playAnnouncer("Round Draw");
         }
 
@@ -620,5 +620,18 @@ export class TeamDeathmatchGameMode extends GameMode {
             if ((t as any).isDead) return false;
             return true;
         });
+    }
+
+    public canPlayerMove(): boolean {
+        // Allow movement only if round is active (and not just starting/counting down)
+        // If countdown is active, block.
+        // If round is not active (between rounds), block.
+        if (this.countdownActive) return false;
+
+        // Also block if we haven't started round 1 yet (startup)
+        if (this.roundNumber === 0 && !this.roundActive) return false;
+
+        // Otherwise allow (during active round)
+        return true;
     }
 }

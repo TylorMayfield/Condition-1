@@ -6,6 +6,7 @@ export class Input {
     private previousMouseButtons: Map<number, boolean> = new Map();
     public mouseDelta: { x: number, y: number } = { x: 0, y: 0 };
     public isPointerLocked: boolean = false;
+    public isEditorActive: boolean = false;
     private previousKeys: Map<string, boolean> = new Map();
     private settingsManager: SettingsManager;
 
@@ -37,7 +38,7 @@ export class Input {
 
         // Auto-relock on click if we should be locked (handled by game state usually, but this helps)
         document.addEventListener('click', () => {
-            if (!this.isPointerLocked && !this.isMenuVisible()) {
+            if (!this.isPointerLocked && !this.isMenuVisible() && !this.isEditorActive) {
                 this.lockCursor();
             }
         });

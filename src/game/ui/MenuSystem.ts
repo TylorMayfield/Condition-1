@@ -20,7 +20,6 @@ export class MenuSystem {
     private preloadedModelFile: File | null = null;
 
     private availableMaps = [
-        'killhouse',
         'de_dust2_d',
         'de_train_d',
         'de_chateau_d',
@@ -149,6 +148,7 @@ export class MenuSystem {
             this.overlay.style.display = 'block';
             this.isVisible = true;
             this.game.isPaused = true;
+            this.game.setMenuMode(true); // Optimize
             this.game.input.unlockCursor();
 
             // Update Resume button visibility
@@ -161,7 +161,9 @@ export class MenuSystem {
         if (this.overlay) {
             this.overlay.style.display = 'none';
             this.isVisible = false;
+            this.isVisible = false;
             this.game.isPaused = false;
+            this.game.setMenuMode(false); // Restore
             this.game.input.lockCursor();
             this.isGameStarted = true;
         }
@@ -258,14 +260,13 @@ export class MenuSystem {
             </div>
         `;
         mbCard.addEventListener('click', () => {
-            import('../maps/MapBuilder').then(({ MapBuilder }) => {
-                import('../maps/MapBuilderUI').then(({ MapBuilderUI }) => {
-                    const mb = new MapBuilder(30, 30);
-                    const mbui = new MapBuilderUI(mb);
-                    this.hide();
-                    mbui.show();
-                });
-            });
+            // Launch new 3D Level Editor
+            if (this.game.levelEditor) {
+                this.hide();
+                this.game.levelEditor.enter();
+            } else {
+                console.error("Level Editor not found on game instance");
+            }
         });
         grid.appendChild(mbCard);
     }

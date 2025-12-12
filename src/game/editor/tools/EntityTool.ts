@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { EditorTool } from './EditorTool';
+import type { EditorTool } from './EditorTool';
 import { LevelEditor } from '../LevelEditor';
+import { EditorEntity } from '../EditorEntity';
 
 export class EntityTool implements EditorTool {
     public name: string = 'Entity';
@@ -29,13 +30,13 @@ export class EntityTool implements EditorTool {
         this.previewMesh.visible = false;
     }
 
-    public update(dt: number): void {
+    public update(_dt: number): void {
     }
 
-    public onMouseDown(event: MouseEvent): void {
+    public onMouseDown(event: MouseEvent, camera: THREE.Camera, ndc: THREE.Vector2): void {
         if (event.button !== 0) return;
 
-        const intersection = this.getGridIntersection(event);
+        const intersection = this.getGridIntersection(camera, ndc);
         if (intersection) {
             // Place entity
             // Offset Y to sit on ground? VMF center is usually midpoint.
@@ -48,26 +49,22 @@ export class EntityTool implements EditorTool {
         }
     }
 
-    public onMouseMove(event: MouseEvent): void {
-        const intersection = this.getGridIntersection(event);
+    public onMouseMove(event: MouseEvent, camera: THREE.Camera, ndc: THREE.Vector2): void {
+        const intersection = this.getGridIntersection(camera, ndc);
         if (intersection) {
             this.previewMesh.position.copy(intersection).add(new THREE.Vector3(0, 0.5, 0));
         }
     }
 
-    public onMouseUp(event: MouseEvent): void {
+    public onMouseUp(_event: MouseEvent, _camera: THREE.Camera, _ndc: THREE.Vector2): void {
     }
 
-    public onKeyDown(event: KeyboardEvent): void {
+    public onKeyDown(_event: KeyboardEvent): void {
     }
 
-    private getGridIntersection(event: MouseEvent): THREE.Vector3 | null {
+    private getGridIntersection(camera: THREE.Camera, ndc: THREE.Vector2): THREE.Vector3 | null {
         const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        );
-        raycaster.setFromCamera(mouse, this.editor.getGame().camera);
+        raycaster.setFromCamera(ndc, camera);
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const target = new THREE.Vector3();
         return raycaster.ray.intersectPlane(plane, target) ? target.round() : null;

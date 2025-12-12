@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game } from '../engine/Game';
+import { Game } from '../../engine/Game';
 
 /**
  * Manages the Three.js scene for the editor.

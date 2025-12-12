@@ -99,14 +99,6 @@ export class DebugStats extends HUDComponent {
     }
 
     public update(dt: number): void {
-        this.frameCount++;
-        this.timeElapsed += dt;
-        if (this.timeElapsed >= 1.0) {
-            this.fpsDisplay.innerText = `FPS: ${this.frameCount}`;
-            this.frameCount = 0;
-            this.timeElapsed = 0;
-        }
-
         // Update Nav Stats
         if (this.game.recastNav) {
             const agentCount = this.game.recastNav.getRegisteredAgentCount();
@@ -117,11 +109,11 @@ export class DebugStats extends HUDComponent {
             this.navDisplay.style.color = 'red';
         }
 
-        // Update Position
+        // Update Position (Physics synchronized)
         const p = this.game.camera.position;
         this.posDisplay.innerText = `POS: ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}`;
 
-        // Update Velocity
+        // Update Velocity (Physics synchronized)
         const currentPos = this.game.camera.position;
         const dx = currentPos.x - this.prevPos.x;
         const dz = currentPos.z - this.prevPos.z;
@@ -139,6 +131,17 @@ export class DebugStats extends HUDComponent {
         if (this.game.input.getKeyDown('KeyP')) {
             this.debugAIEnabled = !this.debugAIEnabled;
             console.log(`AI Debug Overlay: ${this.debugAIEnabled}`);
+        }
+    }
+
+    public render(dt: number): void {
+        // FPS Calculation (Per Frame)
+        this.frameCount++;
+        this.timeElapsed += dt;
+        if (this.timeElapsed >= 1.0) {
+            this.fpsDisplay.innerText = `FPS: ${this.frameCount}`;
+            this.frameCount = 0;
+            this.timeElapsed = 0;
         }
 
         if (this.debugAIEnabled) {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { EditorTool } from './EditorTool';
+import type { EditorTool } from './EditorTool';
 import { LevelEditor } from '../LevelEditor';
 import { EditorBrush } from '../EditorBrush';
 
@@ -15,7 +15,7 @@ export class SelectTool implements EditorTool {
 
         // Initialize Gizmo
         this.controls = new TransformControls(this.editor.getGame().camera, this.editor.getGame().renderer.domElement);
-        this.controls.addEventListener('dragging-changed', (event: any) => {
+        this.controls.addEventListener('dragging-changed', (_event: any) => {
             // Disable camera movement when dragging gizmo
             // We can hack this by checking if we are using the gizmo
             // EditorCamera consumes RightClick only, Gizmo is LeftClick. Safe.
@@ -34,30 +34,25 @@ export class SelectTool implements EditorTool {
 
     public activate(): void {
         console.log('Select Tool Activated');
-        this.editor.getGame().scene.add(this.controls);
+        this.editor.getGame().scene.add(this.controls as unknown as THREE.Object3D);
     }
 
     public deactivate(): void {
         this.deselect();
         this.controls.detach();
-        this.editor.getGame().scene.remove(this.controls);
+        this.editor.getGame().scene.remove(this.controls as unknown as THREE.Object3D);
     }
 
-    public update(dt: number): void {
+    public update(_dt: number): void {
         // Gizmo updates itself?
     }
 
-    public onMouseDown(event: MouseEvent): void {
+    public onMouseDown(event: MouseEvent, camera: THREE.Camera, ndc: THREE.Vector2): void {
         if (event.button !== 0) return;
 
         // Raycast for brushes
         const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        );
-
-        raycaster.setFromCamera(mouse, this.editor.getGame().camera);
+        raycaster.setFromCamera(ndc, camera);
 
         // Collect all brush meshes
         // We assume we can access editor.brushes (need getter?)
@@ -97,10 +92,10 @@ export class SelectTool implements EditorTool {
         this.controls.detach();
     }
 
-    public onMouseUp(event: MouseEvent): void {
+    public onMouseUp(_event: MouseEvent, _camera: THREE.Camera, _ndc: THREE.Vector2): void {
     }
 
-    public onMouseMove(event: MouseEvent): void {
+    public onMouseMove(_event: MouseEvent, _camera: THREE.Camera, _ndc: THREE.Vector2): void {
     }
 
     public onKeyDown(event: KeyboardEvent): void {

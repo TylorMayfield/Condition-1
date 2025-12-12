@@ -83,7 +83,7 @@ export class Player extends GameObject {
         }
 
         // Delegate to components
-        this.controller.update(dt);
+        this.controller.updatePhysics(dt);
 
         // Update current weapon
         const currentWeapon = this.getCurrentWeapon();
@@ -103,6 +103,11 @@ export class Player extends GameObject {
         }
 
         this.updateHUD();
+    }
+
+    public updateLook(dt: number) {
+        if (this.isSpectating) return;
+        this.controller.updateLook(dt);
     }
 
     public addWeapon(weapon: Weapon) {
@@ -182,7 +187,9 @@ export class Player extends GameObject {
         // Disable controls
         this.game.input.unlockCursor(); // Show cursor
         this.controller.dispose(); // Or disable
-        // TODO: Show Game Over Screen
+
+        // Notify GameMode
+        this.game.onEnemyDeath(this);
     }
 
     public getCurrentWeapon() {
@@ -210,6 +217,7 @@ export class Player extends GameObject {
     public respawn(position: THREE.Vector3) {
         console.log("Respawning Player...");
         this.health = 100;
+        this.isSpectating = false; // CRITICAL: Reset spectator mode on respawn
 
         // Reset Physics
         if (this.body) {

@@ -10,15 +10,16 @@ import { TeamDeathmatchGameMode } from '../game/gamemodes/TeamDeathmatchGameMode
 import { WeatherManager } from '../game/WeatherManager';
 import { WeatherEffects } from '../game/WeatherEffects';
 import { BallisticsManager } from '../game/BallisticsManager';
-import { ExtractionZone } from '../game/ExtractionZone';
+
 import { HUDManager } from '../game/HUDManager';
 import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
-import { BoidSystem } from '../game/BoidSystem';
+import { Profiler } from './Profiler';
+
 
 import { RecastNavigation } from '../game/ai/RecastNavigation';
-
+import { LevelEditor } from '../game/editor/LevelEditor';
 import { SettingsManager } from '../game/SettingsManager';
 
 export class Game {
@@ -38,24 +39,25 @@ export class Game {
     private tickCallbacks: ((dt: number) => void)[] = [];
     public player!: Player; // Public reference for AI
     public isPaused: boolean = false;
-    
+
     // Optimization / Time control
     public timeScale: number = 1.0;
     public renderingEnabled: boolean = true;
-    
+
     public gameMode: GameMode;
     public weatherManager: WeatherManager;
     public weatherEffects: WeatherEffects;
     public ballisticsManager: BallisticsManager;
-    public extractionZone!: ExtractionZone;
+
     public hudManager: HUDManager;
     public squadManager: SquadManager;
     public skyboxManager: SkyboxManager;
     public postProcessingManager?: PostProcessingManager;
-    public boidSystem?: BoidSystem;
+    public profiler: Profiler;
     public availableSpawns: { T: THREE.Vector3[], CT: THREE.Vector3[] } = { T: [], CT: [] };
 
     public recastNav: RecastNavigation;
+    public levelEditor: LevelEditor;
     // @ts-ignore
     public levelGenerator: any; // Type as any to avoid circular import with LevelGenerator
 
@@ -67,9 +69,11 @@ export class Game {
             logarithmicDepthBuffer: true // Better depth precision for large scenes
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        // Optimization: Force 1x pixel ratio to prevent retina lag. (High DPI = 4x GPU load)
+        this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap; // Optimized
+        this.renderer.info.autoReset = false; // We will manually reset to aggregate stats across passes
 
         // Performance optimizations
         this.renderer.sortObjects = true; // Enable object sorting for better culling
@@ -79,9 +83,9 @@ export class Game {
         this.renderer.toneMappingExposure = 1.0;
 
         document.body.appendChild(this.renderer.domElement);
-         
-         // Expose for HUD buttons
-         (window as any).game = this;
+
+        // Expose for HUD buttons
+        (window as any).game = this;
 
         // Init Scene
         this.scene = new THREE.Scene();
@@ -97,6 +101,16 @@ export class Game {
         // Init Physics
         this.world = new CANNON.World();
         this.world.gravity.set(0, -9.82, 0);
+
+        // PERFORMANCE: Use SAPBroadphase instead of NaiveBroadphase (O(n log n) vs O(n²))
+        this.world.broadphase = new CANNON.SAPBroadphase(this.world);
+
+        // PERFORMANCE: Reduce solver iterations (default 10)
+        (this.world.solver as CANNON.GSSolver).iterations = 5;
+
+        // PERFORMANCE: Allow sleeping bodies (static bodies won't be checked every frame)
+        this.world.allowSleep = true;
+
         // Zero friction default (PlayerController handles movement)
         this.world.defaultContactMaterial.friction = 0;
         this.world.defaultContactMaterial.restitution = 0;
@@ -115,8 +129,7 @@ export class Game {
         this.weatherEffects = new WeatherEffects(this);
         this.ballisticsManager = new BallisticsManager(this);
 
-        // Spawn Extraction Zone (Fixed pos for test, or random)
-        this.extractionZone = new ExtractionZone(this, new THREE.Vector3(40, 0, 40));
+
 
         this.hudManager = new HUDManager(this);
         this.squadManager = new SquadManager(this);
@@ -124,8 +137,7 @@ export class Game {
 
         this.skyboxManager = new SkyboxManager(this);
 
-        // Initialize Ambient Birds
-        this.boidSystem = new BoidSystem(this, new THREE.Vector3(0, 20, 0), 60);
+
 
         // Initialize Post-Processing
         this.postProcessingManager = new PostProcessingManager(
@@ -136,6 +148,7 @@ export class Game {
 
 
         this.recastNav = new RecastNavigation(this);
+        this.profiler = new Profiler();
 
         // Init HUD Scene for Weapon Overlay
         this.sceneHUD = new THREE.Scene();
@@ -146,6 +159,9 @@ export class Game {
         gunLight.position.set(-1, 2, 3);
         this.sceneHUD.add(gunLight);
         this.sceneHUD.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+        // Initialize Level Editor
+        this.levelEditor = new LevelEditor(this);
 
         // Resize Listener
         window.addEventListener('resize', () => this.onResize());
@@ -177,9 +193,9 @@ export class Game {
         dirLight.shadow.camera.near = 0.1;
         dirLight.shadow.camera.far = 100;
 
-        // Shadow bias to prevent shadow acne
-        dirLight.shadow.bias = -0.0001;
-        dirLight.shadow.normalBias = 0.02;
+        // Shadow bias to prevent shadow acne (Spackly walls)
+        dirLight.shadow.bias = -0.0005; // Was -0.0001
+        dirLight.shadow.normalBias = 0.05; // Was 0.02
 
         this.scene.add(dirLight);
 
@@ -260,9 +276,41 @@ export class Game {
         } else {
             this.input.lockCursor();
         }
+    }
 
-        // Cooldown/Input consumption handled by Input system usually, 
-        // or the caller (MenuSystem) handles the toggle logic.
+    public setMenuMode(enabled: boolean) {
+        if (enabled) {
+            // Optimize for Menu: Disable heavy effects
+            if (this.postProcessingManager) {
+                this.postProcessingManager.setQuality('low');
+            }
+            this.renderer.shadowMap.enabled = false; // Disable shadows
+        } else {
+            // Restore Game Mode
+            // Do NOT force High Quality (Motion Blur/SSR) as it might be disliked
+            // Just re-enable shadows
+            this.renderer.shadowMap.enabled = true;
+
+            // Optionally, restore 'high' ONLY if it was previously set? 
+            // For now, let's keep PostFX at 'low' (Basic AA only) to be safe, 
+            // OR let SettingsManager handle it.
+            // Let's set it to 'low' to disable the "Huge Motion Blur" complained about.
+            if (this.postProcessingManager) {
+                this.postProcessingManager.setQuality('low');
+            }
+        }
+        // Force material update for shadows if needed
+        this.scene.traverse((obj) => {
+            if (obj instanceof THREE.Mesh) {
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) {
+                        obj.material.forEach(m => m.needsUpdate = true);
+                    } else {
+                        obj.material.needsUpdate = true;
+                    }
+                }
+            }
+        });
     }
 
     private loop() {
@@ -270,6 +318,18 @@ export class Game {
         requestAnimationFrame(() => this.loop());
 
 
+
+        // Toggle Editor with F1
+        if (this.input.getKeyDown('F1')) {
+            this.levelEditor.toggle();
+        }
+
+        if (this.levelEditor.isActive()) {
+            this.levelEditor.update(this.time.deltaTime);
+            this.levelEditor.render(); // Delegate rendering to editor manager
+            this.input.update(); // Still need input
+            return; // Skip game update/render
+        }
 
         if (this.isPaused) {
             this.render();
@@ -285,28 +345,37 @@ export class Game {
         // Time Accumulator for stable physics time scaling
         // Cap real frame time to avoid spiral of death (max 0.1s real time catchup)
         const realDt = Math.min(this.time.deltaTime, 0.1);
-        
+
         // Add scaled time to accumulator
         this.timeAccumulator += realDt * this.timeScale;
 
         // Run simulation steps
         const fixedStep = 1 / 60;
-        const maxSteps = 200; // Cap steps per frame to prevent freeze (approx 3.3s sim time)
+        const maxSteps = 2; // Prevent death spiral - game slows instead of framerate crash
         let steps = 0;
 
         const t0 = performance.now();
+        this.renderer.info.reset(); // Reset stats at start of frame
+        this.profiler.start('Full Frame');
+
+        // Physics / Game Logic Loop
+        this.profiler.start('Update Loop');
         while (this.timeAccumulator >= fixedStep && steps < maxSteps) {
             this.update(fixedStep);
             this.timeAccumulator -= fixedStep;
             steps++;
         }
+        this.profiler.end('Update Loop');
+
         const t1 = performance.now();
-        
-        // Debug: Log if speed is struggling
-        if (steps > 1 && Math.random() < 0.01) {
-            console.log(`[Game] Ran ${steps} steps in ${(t1-t0).toFixed(1)}ms. Avg per step: ${((t1-t0)/steps).toFixed(2)}ms. Target: ${(1000/60).toFixed(2)}ms per step.`);
+
+        // Update Camera Look (Variable Step) for smoothness
+        if (this.player && !this.levelEditor.isActive() && !this.isPaused) {
+            this.player.updateLook(realDt);
         }
-        
+
+        // Debug: Step timing removed for performance
+
         // If we fell too far behind (e.g. at 100x speed on slow PC), discard remainder
         if (this.timeAccumulator > fixedStep * 5) {
             this.timeAccumulator = 0;
@@ -323,49 +392,69 @@ export class Game {
 
         // Update Input state (must be last)
         this.input.update();
+
+        this.profiler.end('Full Frame');
+        this.profiler.update(this.renderer);
     }
 
     private timeAccumulator: number = 0;
 
     private update(dt: number) {
         // Step physics
+        this.profiler.start('Physics');
         this.world.step(1 / 60, dt, 3);
+        this.profiler.end('Physics');
 
         // Update entities
+        this.profiler.start('Entities');
         this.gameObjects.forEach(go => go.update(dt));
+        this.profiler.end('Entities');
 
         // Update Game Mode
+        this.profiler.start('GameMode');
         this.gameMode?.update(dt);
+        this.profiler.end('GameMode');
 
         // Update Weather
+        this.profiler.start('Weather');
         this.weatherManager?.update(dt);
         this.weatherEffects?.update(dt);
+        this.profiler.end('Weather');
 
-        // Update Birds
-        this.boidSystem?.update(dt);
+
 
         // Update Ballistics
+        this.profiler.start('Ballistics');
         this.ballisticsManager?.update(dt);
+        this.profiler.end('Ballistics');
 
-        // Update Extraction
-        this.extractionZone?.update(dt);
+
 
         // Update HUD
+        this.profiler.start('HUD');
         this.hudManager?.update(dt);
+        this.profiler.end('HUD');
 
+        this.profiler.start('Skybox');
         this.skyboxManager?.update(dt);
+        this.profiler.end('Skybox');
 
         // Update Recast Navigation crowd simulation
+        this.profiler.start('AI/Nav');
         this.recastNav?.update(dt);
+        this.profiler.end('AI/Nav');
 
         // Update Callbacks
+        this.profiler.start('TickCallbacks');
         for (let i = this.tickCallbacks.length - 1; i >= 0; i--) {
             this.tickCallbacks[i](dt);
         }
+        this.profiler.end('TickCallbacks');
 
     }
 
     private render() {
+        this.profiler.start('Render');
         // 1. Render Main Scene
         this.renderer.autoClear = true; // Clear everything for first pass
         if (this.postProcessingManager) {
@@ -378,7 +467,12 @@ export class Game {
         this.renderer.autoClear = false; // Don't clear color, just depth
         this.renderer.clearDepth();
         this.renderer.render(this.sceneHUD, this.cameraHUD);
+
+        // 3. Render HUD UI (FPS, etc.)
+        this.hudManager?.render(this.time.deltaTime);
+
         this.renderer.autoClear = true; // Reset
+        this.profiler.end('Render');
     }
 
     public onEnemyDeath(victim: GameObject, killer?: GameObject) {

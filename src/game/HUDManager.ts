@@ -55,7 +55,7 @@ export class HUDManager {
     }
 
     public update(dt: number) {
-        // Update all components
+        // Update all components (Simulation Logic)
         this.components.forEach(c => c.update(dt));
 
         // Update Weapon Logic
@@ -67,6 +67,11 @@ export class HUDManager {
             }
         }
         this.weaponSelector.update();
+    }
+
+    public render(dt: number) {
+        // Update components that need render-frame timing (like FPS, interpolation)
+        this.components.forEach(c => c.render(dt));
     }
 
     // Keep these methods for compatibility with GameMode calls

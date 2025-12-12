@@ -17,7 +17,7 @@ export class Enemy extends GameObject {
     private leftArm: THREE.Mesh;
     private leftLeg: THREE.Mesh;
     private rightLeg: THREE.Mesh;
-    private head: THREE.Mesh;
+    public head: THREE.Mesh;
     private bodyMesh: THREE.Mesh;
     private time: number = 0;
 
@@ -35,6 +35,9 @@ export class Enemy extends GameObject {
     // Threat Tracking
     public isUnderFire: boolean = false;
     private underFireTimer: number = 0;
+
+    // Aiming State
+    private lookPitch: number = 0;
 
     private static BOT_NAMES = [
         "Viper", "Cobra", "Python", "Eagle", "Hawk", "Falcon",
@@ -206,7 +209,7 @@ export class Enemy extends GameObject {
         }
 
         // Log hit for debugging
-        console.log(`Hit ${this.name} in ${hitZone}: ${amount} * ${multiplier.toFixed(1)}x = ${finalDamage} damage`);
+        // Debug hit logging removed for performance
 
         // Play impact sound at hit location
         if (this.body) {
@@ -253,7 +256,7 @@ export class Enemy extends GameObject {
         if (this.isRagdoll) return;
         this.isRagdoll = true;
 
-        console.log("Activating RagdollEntity for Enemy");
+        // Activating ragdoll
 
         // 1. Remove Gameplay Body
         if (this.body) {
@@ -387,7 +390,7 @@ export class Enemy extends GameObject {
         this.rightArm.rotation.set(0, 0, 0);
         this.leftLeg.rotation.set(0, 0, 0);
         this.rightLeg.rotation.set(0, 0, 0);
-        this.head.rotation.set(0, 0, 0);
+        this.head.rotation.set(this.lookPitch, 0, 0);
         this.bodyMesh.rotation.set(0, 0, 0);
         if (this.mesh) this.mesh.rotation.x = 0; // Ensure base group is upright
 
@@ -445,19 +448,19 @@ export class Enemy extends GameObject {
 
         // Apply Leaning (Upper Body Only)
         if (Math.abs(this.leanAmount) > 0.01) {
-             const leanAngle = -this.leanAmount * 0.5; // Max ~30 degrees
-             
-             // Rotate body around Z
-             this.bodyMesh.rotation.z += leanAngle;
-             // Head follows
-             this.head.rotation.z += leanAngle;
-             // Arms follow
-             this.leftArm.rotation.z += leanAngle;
-             this.rightArm.rotation.z += leanAngle;
+            const leanAngle = -this.leanAmount * 0.5; // Max ~30 degrees
 
-             // Visual Offset to simulate leaning out
-             this.head.position.x += this.leanAmount * 0.3;
-             this.bodyMesh.position.x += this.leanAmount * 0.15;
+            // Rotate body around Z
+            this.bodyMesh.rotation.z += leanAngle;
+            // Head follows
+            this.head.rotation.z += leanAngle;
+            // Arms follow
+            this.leftArm.rotation.z += leanAngle;
+            this.rightArm.rotation.z += leanAngle;
+
+            // Visual Offset to simulate leaning out
+            this.head.position.x += this.leanAmount * 0.3;
+            this.bodyMesh.position.x += this.leanAmount * 0.15;
         }
 
         // Posture Overrides based on State
@@ -475,7 +478,8 @@ export class Enemy extends GameObject {
         if (this.aimWeight > 0.01) {
             // Right arm (Weapon)
             const currentRA_X = this.rightArm.rotation.x;
-            const targetRA_X = -Math.PI / 2;
+            // Base aim is -90 deg (forward), plus pitch (look up/down)
+            const targetRA_X = -Math.PI / 2 + this.lookPitch;
             this.rightArm.rotation.x = THREE.MathUtils.lerp(currentRA_X, targetRA_X, this.aimWeight);
 
             this.rightArm.rotation.z = THREE.MathUtils.lerp(0, -0.1, this.aimWeight);
@@ -486,8 +490,8 @@ export class Enemy extends GameObject {
             this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.3, this.aimWeight);
             this.leftArm.rotation.y = THREE.MathUtils.lerp(this.leftArm.rotation.y, 0.2, this.aimWeight);
 
-            // Head looks intense/down sights
-            this.head.rotation.x = THREE.MathUtils.lerp(0, 0.1, this.aimWeight);
+            // Head looks based on lookPitch
+            this.head.rotation.x = this.lookPitch;
 
             // Aim Wiggle while moving
             if (isMoving && this.aimWeight > 0.5) {
@@ -507,6 +511,7 @@ export class Enemy extends GameObject {
         if (this.head) {
             // Clamp pitch to avoid neck breaking (-80 to +80 degrees)
             const clampedPitch = Math.max(-1.4, Math.min(1.4, pitch));
+            this.lookPitch = clampedPitch;
             this.head.rotation.x = clampedPitch;
         }
     }
@@ -525,7 +530,7 @@ export class Enemy extends GameObject {
         dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
         // Apply Body Yaw (rotation around world Y)
         dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-        
+
         // Calculate target point far away
         const origin = this.head.position.clone().add(this.mesh.position);
         const targetPos = origin.clone().add(dir.multiplyScalar(100)); // 100m away
@@ -534,14 +539,14 @@ export class Enemy extends GameObject {
     }
 
     private grenadeCooldown: number = 0;
-    
+
     public throwGrenade() {
         if (this.grenadeCooldown > 0) return;
         if (!this.head || !this.mesh) return;
-        
+
         this.grenadeCooldown = 5.0; // 5 seconds cooldown
 
-        console.log(`${this.name} throwing grenade!`);
+        // Throwing grenade
 
         // Spawn position (from hand/head)
         const origin = this.head.position.clone().add(this.mesh.position);
@@ -551,8 +556,8 @@ export class Enemy extends GameObject {
         // Throw velocity (aim direction * power)
         const yaw = this.mesh.rotation.y;
         const pitch = this.head.rotation.x;
-        
-        const dir = new THREE.Vector3(0, 0, 1); 
+
+        const dir = new THREE.Vector3(0, 0, 1);
         dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch - 0.2); // Tilted up slightly for arc
         dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
 
@@ -574,11 +579,11 @@ export class Enemy extends GameObject {
     public lean(amount: number) {
         // -1 (Left) to 1 (Right)
         this.leanAmount = THREE.MathUtils.clamp(amount, -1, 1);
-        
+
         if (this.bodyMesh && this.head) {
-             // Visual Lean: Rotate torso and head around Z axis
-             // Note: animate() resets rotations every frame, so we need to apply this IN animate() or ensure animate() respects it.
-             // We will modify animate() to apply this offset.
+            // Visual Lean: Rotate torso and head around Z axis
+            // Note: animate() resets rotations every frame, so we need to apply this IN animate() or ensure animate() respects it.
+            // We will modify animate() to apply this offset.
         }
     }
 
@@ -598,10 +603,10 @@ export class Enemy extends GameObject {
 
     private checkGrounded(): boolean {
         if (!this.body) return false;
-        
+
         const world = this.game.world;
         let isGrounded = false;
-        
+
         for (const contact of world.contacts) {
             let normalY = 0;
             if (contact.bi === this.body) {

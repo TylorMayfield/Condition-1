@@ -33,6 +33,10 @@ export abstract class HUDComponent {
 
     public abstract update(dt: number): void;
 
+    public render(_dt: number): void {
+        // Optional override
+    }
+
     protected onMount(): void {
         // Lifecycle hook
     }

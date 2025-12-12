@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { Game } from '../engine/Game';
 
 /**
  * Editor Camera - "Fly Mode" camera control similar to Hammer/Unity.
@@ -11,12 +10,10 @@ export class EditorCamera {
 
     // Config
     private moveSpeed: number = 50;
-    private fastMoveMultiplier: number = 3;
     private rotateSpeed: number = 0.002;
 
     // State
     private isEnabled: boolean = false;
-    private isRightMouseDown: boolean = false;
     private moveState = {
         forward: false,
         backward: false,
@@ -67,20 +64,18 @@ export class EditorCamera {
         document.removeEventListener('mouseup', this.onMouseUp);
         document.removeEventListener('mousemove', this.onMouseMove);
         this.domElement.removeEventListener('contextmenu', this.onContextMenu);
-
-        this.isRightMouseDown = false;
     }
 
     public update(dt: number): void {
         if (!this.isEnabled) return;
 
         // Movement
-        const speed = this.moveSpeed * (this.moveState.forward ? this.fastMoveMultiplier : 1) * dt; // Hold shift check? Na, simplified.
-        // Actually lets add shift modifier
+        // const speed = this.moveSpeed * (this.moveState.forward ? this.fastMoveMultiplier : 1) * dt;
 
         const actualSpeed = this.moveSpeed * (this.moveState.forward || this.moveState.backward || this.moveState.left || this.moveState.right || this.moveState.up || this.moveState.down ? 1 : 0) * dt;
 
         if (actualSpeed === 0) return;
+
 
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
@@ -129,22 +124,17 @@ export class EditorCamera {
         }
     }
 
-    private onMouseDown(event: MouseEvent): void {
-        if (event.button === 2) {
-            this.isRightMouseDown = true;
-            this.domElement.style.cursor = 'none';
-        }
+    private onMouseDown(_event: MouseEvent): void {
+        // No-op for navigation (LevelEditor handles Lock request)
     }
 
-    private onMouseUp(event: MouseEvent): void {
-        if (event.button === 2) {
-            this.isRightMouseDown = false;
-            this.domElement.style.cursor = 'default';
-        }
+    private onMouseUp(_event: MouseEvent): void {
+        // No-op
     }
 
     private onMouseMove(event: MouseEvent): void {
-        if (!this.isRightMouseDown) return;
+        // Only rotate if locked to this element
+        if (document.pointerLockElement !== this.domElement) return;
 
         const movementX = event.movementX || 0;
         const movementY = event.movementY || 0;

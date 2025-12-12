@@ -21,9 +21,9 @@ export class PlayerController {
     private isProne: boolean = false; // New Prone state
     private crouchAmount: number = 0; // 0 = standing, 1 = crouching/prone
     private proneAmount: number = 0; // 0 = not prone, 1 = fully prone
-    private targetCrouch: number = 0; 
+    private targetCrouch: number = 0;
     private lastCrouchTime: number = 0; // For double-tap detection
-    private lean: number = 0; 
+    private lean: number = 0;
     private targetLean: number = 0;
     private isNoclip: boolean = false;
     private flashlight: THREE.SpotLight | null = null;
@@ -36,13 +36,42 @@ export class PlayerController {
         this.initFlashlight();
     }
 
-    public update(dt: number) {
-        this.handleRotation();
+    public updatePhysics(dt: number) {
         this.handleMovement();
-        this.handleLeaning(dt);
         this.handleCrouching(dt);
+    }
+
+    public updateLook(dt: number) {
+        this.handleRotation();
+        this.handleLeaning(dt);
         this.handleFlashlightToggle();
+        this.handleInputToggles();
         this.syncCamera(dt);
+    }
+
+    private handleInputToggles() {
+        const body = this.gameObject.body;
+        if (!body) return;
+
+        // Toggle Noclip
+        if (this.game.input.getKeyDown('KeyV')) {
+            this.isNoclip = !this.isNoclip;
+            if (this.isNoclip) {
+                console.log('Noclip ENABLED');
+                body.type = CANNON.Body.KINEMATIC; // Disable gravity/forces
+                body.collisionResponse = false; // Disable solver response
+                body.velocity.set(0, 0, 0);
+            } else {
+                console.log('Noclip DISABLED');
+                body.type = CANNON.Body.DYNAMIC; // Re-enable physics
+                body.collisionResponse = true; // Re-enable solver response
+                body.mass = 1; // Ensure mass is restored
+                body.updateMassProperties(); // Recalculate inertia
+                body.velocity.set(0, 0, 0);
+                body.angularVelocity.set(0, 0, 0);
+                body.wakeUp(); // Ensure it wakes up
+            }
+        }
     }
 
     public applyRecoil(x: number, y: number) {
@@ -60,9 +89,16 @@ export class PlayerController {
     }
 
     private handleLeaning(dt: number) {
-        this.targetLean = 0;
-        if (this.game.input.getKey('KeyQ')) this.targetLean = 1; // Left (Positive Roll usually tilts left in some coord systems, let's test)
-        if (this.game.input.getKey('KeyE')) this.targetLean = -1; // Right
+        if (!this.game.gameMode.canPlayerMove()) {
+            this.targetLean = 0;
+            // Allow smoothing back to 0
+        } else {
+            this.targetLean = 0;
+            if (this.game.input.getKey('KeyQ')) this.targetLean = 1; // Left
+            if (this.game.input.getKey('KeyE')) this.targetLean = -1; // Right
+        }
+
+        // Smoothly interpolate lean
 
         // Smoothly interpolate lean
         const leanSpeed = 5;
@@ -70,27 +106,23 @@ export class PlayerController {
     }
 
     private handleMovement() {
+        // Round Start Check
+        if (!this.game.gameMode.canPlayerMove()) {
+            // Apply zero velocity to stop any rigid body momentum immediately if needed, 
+            // or just return to let friction take over (but updating velocity to 0 checks input).
+            // If we just return, momentum might carry us.
+            // Better to explicitly damping or just zero out horizontal velocity if ground based.
+            if (this.gameObject.body && this.checkGrounded()) {
+                this.gameObject.body.velocity.x = 0;
+                this.gameObject.body.velocity.z = 0;
+            }
+            return;
+        }
+
         const body = this.gameObject.body;
         if (!body) return;
 
-        // Toggle Noclip
-        if (this.game.input.getKeyDown('KeyV')) {
-            this.isNoclip = !this.isNoclip;
-            if (this.isNoclip) {
-                console.log('Noclip ENABLED');
-                body.type = CANNON.Body.KINEMATIC; // Disable gravity/forces
-                body.collisionResponse = false; // Disable solver response
-                body.velocity.set(0, 0, 0);
-            } else {
-                console.log('Noclip DISABLED');
-                body.type = CANNON.Body.DYNAMIC; // Re-enable physics
-                body.collisionResponse = true; // Re-enable solver response
-                body.mass = 1; // Ensure mass is restored (Kinematic might ignore mass)
-                body.updateMassProperties(); // Recalculate inertia
-                body.velocity.set(0, 0, 0);
-                body.angularVelocity.set(0, 0, 0);
-            }
-        }
+
 
         if (this.isNoclip) {
             this.handleNoclipMovement(body);
@@ -116,12 +148,12 @@ export class PlayerController {
                     this.isProne = false;
                     this.targetCrouch = 1;
                 } else {
-                     if (this.targetCrouch > 0.5) {
-                         // Stand up if clear
-                         if (!this.checkCeiling()) this.targetCrouch = 0;
-                     } else {
-                         this.targetCrouch = 1;
-                     }
+                    if (this.targetCrouch > 0.5) {
+                        // Stand up if clear
+                        if (!this.checkCeiling()) this.targetCrouch = 0;
+                    } else {
+                        this.targetCrouch = 1;
+                    }
                 }
             }
             this.lastCrouchTime = now;
@@ -129,11 +161,11 @@ export class PlayerController {
 
         // Sprint cancels Prone/Crouch (if possible)
         if (this.game.input.getAction('Sprint')) {
-             if (this.isProne) this.isProne = false;
-             // Optional: cancel crouch on sprint? Usually yes.
-             // if (this.targetCrouch > 0 && !this.checkCeiling()) this.targetCrouch = 0;
+            if (this.isProne) this.isProne = false;
+            // Optional: cancel crouch on sprint? Usually yes.
+            // if (this.targetCrouch > 0 && !this.checkCeiling()) this.targetCrouch = 0;
         }
-        
+
         // Remove legacy hardcoded keys
         // if (this.game.input.getKeyDown('KeyZ')) ... 
 
@@ -161,7 +193,7 @@ export class PlayerController {
             // Calculate footstep interval based on speed
             const isRunning = currentSpeed > this.speed;
             const footstepInterval = this.isCrouching ? 0.6 : (isRunning ? 0.3 : 0.45);
-            
+
             this.footstepTimer += 1 / 60; // Assume ~60fps, adjust if needed
             if (this.footstepTimer >= footstepInterval) {
                 this.footstepTimer = 0;
@@ -268,8 +300,8 @@ export class PlayerController {
         const start = this.gameObject.body.position.clone();
         // Start ray OUTSIDE the body sphere to avoid self-collision
         // Sphere radius is 0.5.
-        start.y += 0.6; 
-        
+        start.y += 0.6;
+
         const end = start.clone();
         end.y += 1.0; // Check up to standing height + buffer relative to start
 
@@ -295,13 +327,13 @@ export class PlayerController {
                 this.flashlight.intensity = this.flashlightOn ? 2 : 0;
             }
         }
-        
+
         // Update flashlight position/direction to match camera
         if (this.flashlight && this.flashlightOn) {
             this.flashlight.position.copy(this.game.camera.position);
             // Move it slightly offset?
             this.flashlight.position.add(new THREE.Vector3(0.2, -0.2, 0).applyQuaternion(this.game.camera.quaternion));
-            
+
             // Set target
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.game.camera.quaternion);
             this.flashlight.target.position.copy(this.flashlight.position).add(forward);
@@ -324,11 +356,11 @@ export class PlayerController {
         // Blend: First Stand -> Crouch, then Crouch -> Prone
         let currentHeight = standingHeight;
         if (this.proneAmount > 0) {
-             currentHeight = crouchingHeight - (crouchingHeight - proneHeight) * this.proneAmount;
+            currentHeight = crouchingHeight - (crouchingHeight - proneHeight) * this.proneAmount;
         } else {
-             currentHeight = standingHeight - (standingHeight - crouchingHeight) * this.crouchAmount;
+            currentHeight = standingHeight - (standingHeight - crouchingHeight) * this.crouchAmount;
         }
-        
+
         const heightOffset = currentHeight;
 
         // Base head position

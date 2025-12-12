@@ -17,9 +17,12 @@
     "bake": "npx tsx scripts/bake-navmesh.ts",
     "bake:all": "npx tsx scripts/bake-navmesh.ts --all",
     "test:nav": "npx tsx scripts/test-nav.ts",
-    "generate-map": "npx tsx scripts/generate-map.ts"
+    "generate-map": "npx tsx scripts/generate-map.ts",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.0.0",
     "@electron-forge/cli": "^7.10.2",
     "@electron-forge/maker-squirrel": "^7.10.2",
     "@electron-forge/maker-zip": "^7.10.2",

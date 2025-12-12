@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Game } from '../../engine/Game';
 import { BrushMap } from '../maps/BrushMap';
+import type { BrushMapDefinition } from '../maps/BrushMap';
 import { BrushMapParser } from '../maps/BrushMapParser';
 import { BrushMapRenderer } from '../maps/BrushMapRenderer';
 
@@ -13,20 +14,25 @@ export class BrushMapLoader {
 
     public async load(mapName: string): Promise<BrushMap> {
         const fileName = mapName.endsWith('.brushmap') ? mapName : `${mapName}.brushmap`;
-        const nameWithoutExt = fileName.replace('.brushmap', '');
+
 
         try {
-            const brushMapModule = await import(`../maps/${nameWithoutExt}.brushmap?raw`);
-            const content = brushMapModule.default || brushMapModule;
+            // Fetch map from public/maps directory
+            const response = await fetch(`maps/${fileName}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch map: ${response.statusText}`);
+            }
+            const content = await response.text();
 
-            const brushMap = BrushMapParser.parse(content);
+            const brushMapDefinition: BrushMapDefinition = BrushMapParser.parse(content);
+            const brushMap = new BrushMap(this.game, brushMapDefinition);
 
             // Setup lighting
             this.setupLighting();
 
             // Render the map
-            const renderer = new BrushMapRenderer(this.game.scene, this.game.world);
-            renderer.render(brushMap);
+            const renderer = new BrushMapRenderer(this.game, brushMap);
+            renderer.render();
 
             console.log(`Loaded BrushMap: ${fileName}`);
             return brushMap;
@@ -55,11 +61,11 @@ export class BrushMapLoader {
 
     public static async check(mapName: string): Promise<boolean> {
         const fileName = mapName.endsWith('.brushmap') ? mapName : `${mapName}.brushmap`;
-        const nameWithoutExt = fileName.replace('.brushmap', '');
+
 
         try {
-            await import(`../maps/${nameWithoutExt}.brushmap?raw`);
-            return true;
+            const response = await fetch(`maps/${fileName}`, { method: 'HEAD' });
+            return response.ok;
         } catch {
             return false;
         }

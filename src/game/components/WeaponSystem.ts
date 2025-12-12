@@ -205,62 +205,13 @@ export class WeaponSystem extends Weapon {
     }
 
     // State for Muzzle Flash
-    private muzzleFlashLight: THREE.PointLight | null = null;
-    private muzzleFlashSprite: THREE.Sprite | null = null;
-    private muzzleFlashTimeout: any = null;
-    
+    // Optimized: Removed Muzzle Flash completely per user request
+
     // Performance: Reusable Raycaster
     private raycaster: THREE.Raycaster = new THREE.Raycaster();
 
-    private createMuzzleFlash() {
-        if (this.muzzleFlashTimeout) {
-            clearTimeout(this.muzzleFlashTimeout);
-            this.muzzleFlashTimeout = null;
-        }
-
-        // Initialize (Lazy Load)
-        if (!this.muzzleFlashLight) {
-            this.muzzleFlashLight = new THREE.PointLight(0xffaa00, 3, 10);
-            this.muzzleFlashLight.position.set(0.15, -0.15, -1.0);
-            this.mesh.add(this.muzzleFlashLight);
-
-            const spriteMaterial = new THREE.SpriteMaterial({
-                color: 0xffff00,
-                transparent: true,
-                opacity: 1,
-                blending: THREE.AdditiveBlending
-            });
-            this.muzzleFlashSprite = new THREE.Sprite(spriteMaterial);
-            this.muzzleFlashSprite.scale.set(0.3, 0.3, 0.3);
-            this.muzzleFlashSprite.position.set(0.15, -0.15, -1.0);
-            this.mesh.add(this.muzzleFlashSprite);
-        }
-
-        // Show
-        this.muzzleFlashLight.visible = true;
-        this.muzzleFlashSprite!.visible = true;
-        
-        // Randomize
-        this.muzzleFlashSprite!.material.rotation = Math.random() * Math.PI * 2;
-
-        // Hide after 20ms
-        this.muzzleFlashTimeout = setTimeout(() => {
-            if (this.muzzleFlashLight) this.muzzleFlashLight.visible = false;
-            if (this.muzzleFlashSprite) this.muzzleFlashSprite.visible = false;
-            this.muzzleFlashTimeout = null;
-        }, 20);
-    }
-    
     // Override dispose to clean up
     public dispose() {
-        if (this.muzzleFlashLight) {
-            this.mesh.remove(this.muzzleFlashLight);
-            this.muzzleFlashLight.dispose();
-        }
-        if (this.muzzleFlashSprite) {
-            this.mesh.remove(this.muzzleFlashSprite);
-            this.muzzleFlashSprite.material.dispose();
-        }
         super.dispose();
     }
 
@@ -271,8 +222,7 @@ export class WeaponSystem extends Weapon {
         this.currentRecoil.x += recoilX;
         controller.applyRecoil(recoilX, recoilY); // Camera recoil
 
-        // === MUZZLE FLASH EFFECT ===
-        this.createMuzzleFlash();
+        // === MUZZLE FLASH REMOVED ===
 
         // Muzzle Position (Approximation)
         // We want to shoot from Camera center basically, but visually from gun?
