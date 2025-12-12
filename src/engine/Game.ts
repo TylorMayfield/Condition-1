@@ -38,6 +38,11 @@ export class Game {
     private tickCallbacks: ((dt: number) => void)[] = [];
     public player!: Player; // Public reference for AI
     public isPaused: boolean = false;
+    
+    // Optimization / Time control
+    public timeScale: number = 1.0;
+    public renderingEnabled: boolean = true;
+    
     public gameMode: GameMode;
     public weatherManager: WeatherManager;
     public weatherEffects: WeatherEffects;
@@ -74,6 +79,9 @@ export class Game {
         this.renderer.toneMappingExposure = 1.0;
 
         document.body.appendChild(this.renderer.domElement);
+         
+         // Expose for HUD buttons
+         (window as any).game = this;
 
         // Init Scene
         this.scene = new THREE.Scene();
@@ -273,8 +281,41 @@ export class Game {
         }
 
         this.time.update();
-        this.update(this.time.deltaTime);
-        this.render();
+
+        // Time Accumulator for stable physics time scaling
+        // Cap real frame time to avoid spiral of death (max 0.1s real time catchup)
+        const realDt = Math.min(this.time.deltaTime, 0.1);
+        
+        // Add scaled time to accumulator
+        this.timeAccumulator += realDt * this.timeScale;
+
+        // Run simulation steps
+        const fixedStep = 1 / 60;
+        const maxSteps = 200; // Cap steps per frame to prevent freeze (approx 3.3s sim time)
+        let steps = 0;
+
+        const t0 = performance.now();
+        while (this.timeAccumulator >= fixedStep && steps < maxSteps) {
+            this.update(fixedStep);
+            this.timeAccumulator -= fixedStep;
+            steps++;
+        }
+        const t1 = performance.now();
+        
+        // Debug: Log if speed is struggling
+        if (steps > 1 && Math.random() < 0.01) {
+            console.log(`[Game] Ran ${steps} steps in ${(t1-t0).toFixed(1)}ms. Avg per step: ${((t1-t0)/steps).toFixed(2)}ms. Target: ${(1000/60).toFixed(2)}ms per step.`);
+        }
+        
+        // If we fell too far behind (e.g. at 100x speed on slow PC), discard remainder
+        if (this.timeAccumulator > fixedStep * 5) {
+            this.timeAccumulator = 0;
+        }
+
+        // Render if enabled
+        if (this.renderingEnabled) {
+            this.render();
+        }
 
         // Reset mouse delta after frame
         this.input.mouseDelta.x = 0;
@@ -283,6 +324,8 @@ export class Game {
         // Update Input state (must be last)
         this.input.update();
     }
+
+    private timeAccumulator: number = 0;
 
     private update(dt: number) {
         // Step physics

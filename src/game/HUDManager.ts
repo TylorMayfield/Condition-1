@@ -184,6 +184,7 @@ export class HUDManager {
         trainingSteps: number;
         experienceCount: number;
         bufferSize: number;
+        simTimeLeft: number;
     }) {
         if (!this.trainingStatsDisplay) {
             this.trainingStatsDisplay = document.createElement('div');
@@ -214,6 +215,9 @@ export class HUDManager {
                 📊 Round: <span style="color: #fff;">${stats.round}/${stats.maxRounds}</span>
             </div>
             <div style="margin-bottom: 4px;">
+                 ⏱️ Time Left: <span style="color: ${stats.simTimeLeft < 10 ? 'red' : 'white'};">${stats.simTimeLeft}s</span>
+            </div>
+            <div style="margin-bottom: 4px;">
                 🎯 Avg Reward: <span style="color: ${stats.avgReward >= 0 ? '#00ff00' : '#ff4444'};">${stats.avgReward.toFixed(2)}</span>
             </div>
             <div style="margin-bottom: 4px;">
@@ -230,6 +234,20 @@ export class HUDManager {
                 <div style="background: #ffaa00; height: 100%; width: ${bufferProgress}%; border-radius: 3px;"></div>
             </div>
             <div style="font-size: 10px; color: #888;">Buffer: ${bufferProgress.toFixed(0)}%</div>
+            
+            <div style="margin-top: 10px; border-top: 1px solid #335544; padding-top: 5px;">
+                <div style="font-size: 12px; margin-bottom: 4px;">Speed: ${(this.game.timeScale || 1).toFixed(0)}x</div>
+                <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+                    <button onclick="window.game.timeScale = 1" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[6] 1x</button>
+                    <button onclick="window.game.timeScale = 5" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[7] 5x</button>
+                    <button onclick="window.game.timeScale = 20" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[8] 20x</button>
+                    <button onclick="window.game.timeScale = 100" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[9] MAX</button>
+                </div>
+                <button onclick="window.game.renderingEnabled = !window.game.renderingEnabled" style="width: 100%; background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">
+                    [0] ${this.game.renderingEnabled ? 'Disable Rendering' : 'Enable Rendering'}
+                </button>
+                 <div style="font-size: 10px; color: #666; margin-top: 2px;">Disable render for max speed</div>
+            </div>
         `;
         this.trainingStatsDisplay.style.display = 'block';
     }

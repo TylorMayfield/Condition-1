@@ -58,6 +58,7 @@ export class RLTrainingGameMode extends GameMode {
     private roundStartTime: number = 0;
     private totalTrainingTime: number = 0;
     private roundRewards: number[] = []; // Track rewards per round for visualization
+    private lastHUDUpdate: number = 0; // Throttle HUD updates
 
 
     constructor(game: Game, config?: { botsPerTeam?: number; roundDurationSeconds?: number }) {
@@ -132,16 +133,28 @@ export class RLTrainingGameMode extends GameMode {
         // Update spectator camera
         this.spectatorController.update(dt);
 
-        // Update training stats HUD
-        const stats = this.trainer.getStats();
-        (this.game.hudManager as any).showTrainingStats({
-            round: this.roundNumber,
-            maxRounds: this.maxRounds,
-            avgReward: stats.avgReward,
-            trainingSteps: stats.trainingSteps,
-            experienceCount: this.trainer.getExperienceCount(),
-            bufferSize: 2048 // Match RLTrainer.bufferSize
-        });
+        // Input Handling for Training Controls
+        if (this.game.input.getKeyDown('Digit6')) this.game.timeScale = 1;
+        if (this.game.input.getKeyDown('Digit7')) this.game.timeScale = 5;
+        if (this.game.input.getKeyDown('Digit8')) this.game.timeScale = 20;
+        if (this.game.input.getKeyDown('Digit9')) this.game.timeScale = 100;
+        if (this.game.input.getKeyDown('Digit0')) this.game.renderingEnabled = !this.game.renderingEnabled;
+
+        // Update training stats HUD (Throttled to ~10Hz to prevent DOM thrashing)
+        const now = Date.now();
+        if (now - this.lastHUDUpdate > 100) {
+            this.lastHUDUpdate = now;
+            const stats = this.trainer.getStats();
+            (this.game.hudManager as any).showTrainingStats({
+                round: this.roundNumber,
+                maxRounds: this.maxRounds,
+                avgReward: stats.avgReward,
+                trainingSteps: stats.trainingSteps,
+                experienceCount: this.trainer.getExperienceCount(),
+                bufferSize: 2048,
+                simTimeLeft: Math.ceil(this.roundTimer)
+            });
+        }
 
         if (this.roundActive) {
             // Update training for all bots
@@ -478,7 +491,10 @@ export class RLTrainingGameMode extends GameMode {
         // Log detailed stats
         const stats = this.trainer.getStats();
         const winner = taskForceWon ? 'TaskForce' : (opForWon ? 'OpFor' : 'Draw');
-        const roundDuration = (Date.now() - this.roundStartTime) / 1000;
+        
+        // Calculate sim duration: (limit - remaining)
+        const roundDuration = this.roundTimeLimit - Math.max(0, this.roundTimer);
+        
         this.totalTrainingTime += roundDuration;
         this.roundRewards.push(stats.avgReward);
 
