@@ -6,6 +6,7 @@ import { VmfMapLoader } from './loaders/VmfMapLoader';
 import { BrushMapLoader } from './loaders/BrushMapLoader';
 import { TextMapLoader } from './loaders/TextMapLoader';
 import { EntitySpawner } from './EntitySpawner';
+import { MOBAMapGenerator } from './maps/MOBAMapGenerator';
 
 /**
  * LevelGenerator - Coordinate map loading across different formats
@@ -32,6 +33,15 @@ export class LevelGenerator {
         this.clearLevel(); // Clean up previous level first
 
         try {
+            // Check if MOBA mode - generate MOBA map
+            if (this.game.gameMode && this.game.gameMode.constructor.name === 'MOBAGameMode') {
+                console.log(`Generating MOBA map`);
+                const mobaGenerator = new MOBAMapGenerator(this.game);
+                mobaGenerator.generate();
+                // MOBA mode handles its own initialization
+                return;
+            }
+
             // Try VMF first (priority format)
             if (await VmfMapLoader.check(mapName)) {
                 console.log(`Loading as VMF: ${mapName}`);
@@ -134,10 +144,14 @@ export class LevelGenerator {
             // Also check if child is player's flashlight target/light if they are separate?
             // Flashlight is attached to camera usually.
 
-            // Remove Meshes (Map chunks, Entities, Floor)
-            if (child instanceof THREE.Mesh || child instanceof THREE.Group || child instanceof THREE.Light) {
-                this.game.scene.remove(child);
+            // Preserve main directional light and camera
+            const gameWithLights = this.game as any;
+            if (child === gameWithLights.mainDirectionalLight) continue;
+            if (child === this.game.camera) continue;
 
+            // Remove Meshes (Map chunks, Entities, Floor)
+            // Only remove non-main lights (map-specific lights)
+            if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
                 // Dispose geometry/materials if possible
                 if (child instanceof THREE.Mesh) {
                     if (child.geometry) child.geometry.dispose();
@@ -148,6 +162,12 @@ export class LevelGenerator {
                             child.material.dispose();
                         }
                     }
+                }
+                this.game.scene.remove(child);
+            } else if (child instanceof THREE.Light) {
+                // Only remove if it's not the main directional light
+                if (child !== gameWithLights.mainDirectionalLight) {
+                    this.game.scene.remove(child);
                 }
             }
         }

@@ -3,6 +3,7 @@ import { SettingsManager } from '../SettingsManager';
 import { TeamDeathmatchGameMode } from '../gamemodes/TeamDeathmatchGameMode';
 import { FreeForAllGameMode } from '../gamemodes/FreeForAllGameMode';
 import { RLTrainingGameMode } from '../gamemodes/RLTrainingGameMode';
+import { MOBAGameMode } from '../gamemodes/MOBAGameMode';
 // @ts-ignore
 import menuHtml from './main_menu.html?raw';
 // @ts-ignore
@@ -98,6 +99,11 @@ export class MenuSystem {
         modeSelect?.addEventListener('change', () => {
             this.updateModeOptions(modeSelect.value);
         });
+        
+        // Set initial mode state
+        if (modeSelect) {
+            this.updateModeOptions(modeSelect.value);
+        }
 
         // RL Training - Load Model button
         const loadModelBtn = document.getElementById('rl-load-model-btn');
@@ -122,15 +128,52 @@ export class MenuSystem {
     private updateModeOptions(mode: string) {
         const spectatorOptions = document.getElementById('spectator-options');
         const rlTrainingOptions = document.getElementById('rl-training-options');
+        const mapGrid = document.getElementById('map-grid-container');
+        const mapGridParent = mapGrid?.parentElement;
 
         if (mode === 'rl-training') {
             // Hide spectator, show RL training options
             if (spectatorOptions) spectatorOptions.style.display = 'none';
             if (rlTrainingOptions) rlTrainingOptions.style.display = 'block';
+            if (mapGrid) mapGrid.style.display = 'grid';
+        } else if (mode === 'moba') {
+            // Hide spectator, hide map selection (MOBA uses generated map)
+            if (spectatorOptions) spectatorOptions.style.display = 'none';
+            if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
+            if (mapGrid) mapGrid.style.display = 'none';
+            
+            // Show MOBA info message with start button
+            let mobaInfo = document.getElementById('moba-info');
+            if (!mobaInfo && mapGridParent) {
+                mobaInfo = document.createElement('div');
+                mobaInfo.id = 'moba-info';
+                mobaInfo.style.cssText = 'padding: 20px; text-align: center; color: #a5b4fc; background: rgba(99, 102, 241, 0.1); border: 1px solid #6366f1; border-radius: 8px; margin-top: 20px;';
+                mobaInfo.innerHTML = `
+                    <h3 style="color: #a5b4fc; margin: 0 0 10px 0;">⚔️ MOBA Mode</h3>
+                    <p style="margin: 0 0 15px 0; font-size: 16px;">This mode uses a procedurally generated 3-lane map.</p>
+                    <button id="moba-start-btn" class="menu-btn" style="padding: 12px 24px; font-size: 16px; background: #4f46e5; border-color: #6366f1;">
+                        Start MOBA Game
+                    </button>
+                `;
+                mapGridParent.insertBefore(mobaInfo, mapGrid);
+                
+                // Bind start button
+                const startBtn = document.getElementById('moba-start-btn');
+                startBtn?.addEventListener('click', () => {
+                    this.loadMap('moba');
+                });
+            } else if (mobaInfo) {
+                mobaInfo.style.display = 'block';
+            }
         } else {
-            // Show spectator, hide RL training options
+            // Show spectator, hide RL training options, show map selection
             if (spectatorOptions) spectatorOptions.style.display = 'flex';
             if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
+            if (mapGrid) mapGrid.style.display = 'grid';
+            
+            // Hide MOBA info if it exists
+            const mobaInfo = document.getElementById('moba-info');
+            if (mobaInfo) mobaInfo.style.display = 'none';
         }
     }
 
@@ -284,6 +327,11 @@ export class MenuSystem {
             const modeValue = modeSelect ? modeSelect.value : 'tdm';
 
             console.log(`Selected Game Mode: ${modeValue}`);
+            
+            // For MOBA mode, skip map selection requirement
+            if (modeValue === 'moba') {
+                mapName = 'moba'; // Use special map name for MOBA
+            }
 
             // Switch Game Mode
             if (modeValue === 'rl-training') {
@@ -308,6 +356,8 @@ export class MenuSystem {
                 }
             } else if (modeValue === 'ffa') {
                 this.game.gameMode = new FreeForAllGameMode(this.game);
+            } else if (modeValue === 'moba') {
+                this.game.gameMode = new MOBAGameMode(this.game);
             } else {
                 // Default to TDM
                 this.game.gameMode = new TeamDeathmatchGameMode(this.game);
@@ -323,7 +373,10 @@ export class MenuSystem {
             this.showLoading();
 
             const lg = (this.game as any).levelGenerator;
-            await lg.loadMap(mapName);
+            
+            // For MOBA mode, use a special map name
+            const actualMapName = modeValue === 'moba' ? 'moba' : mapName;
+            await lg.loadMap(actualMapName);
 
             // Initialize the new game mode (reset rounds, spawn logic, etc)
             this.game.gameMode.init();
