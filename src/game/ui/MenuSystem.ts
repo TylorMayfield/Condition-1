@@ -4,6 +4,7 @@ import { TeamDeathmatchGameMode } from '../gamemodes/TeamDeathmatchGameMode';
 import { FreeForAllGameMode } from '../gamemodes/FreeForAllGameMode';
 import { RLTrainingGameMode } from '../gamemodes/RLTrainingGameMode';
 import { MOBAGameMode } from '../gamemodes/MOBAGameMode';
+import { MallowMightGameMode } from '../gamemodes/MallowMightGameMode';
 // @ts-ignore
 import menuHtml from './main_menu.html?raw';
 // @ts-ignore
@@ -96,6 +97,16 @@ export class MenuSystem {
 
         // Game Mode Toggle - Show/hide RL training options
         const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
+        
+        // Inject Mallow Might Option
+        if (modeSelect) {
+            const opt = document.createElement('option');
+            opt.value = 'allow'; // typo check: 'mallow'
+            opt.value = 'mallow';
+            opt.textContent = 'Mallow Might (Physics)';
+            modeSelect.appendChild(opt);
+        }
+        
         modeSelect?.addEventListener('change', () => {
             this.updateModeOptions(modeSelect.value);
         });
@@ -140,7 +151,42 @@ export class MenuSystem {
             // Hide spectator, hide map selection (MOBA uses generated map)
             if (spectatorOptions) spectatorOptions.style.display = 'none';
             if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
+            if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
             if (mapGrid) mapGrid.style.display = 'none';
+        } else if (mode === 'mallow') {
+            // Hide spectator, hide map (Mallow has own map)
+            if (spectatorOptions) spectatorOptions.style.display = 'none';
+            if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
+            if (mapGrid) mapGrid.style.display = 'none';
+            
+             // Show info logic similar to MOBA?
+             // Reuse MOBA info box or create new one
+             let mallowInfo = document.getElementById('mallow-info');
+             if (!mallowInfo && mapGridParent) {
+                 mallowInfo = document.createElement('div');
+                 mallowInfo.id = 'mallow-info';
+                 mallowInfo.style.cssText = 'padding: 20px; text-align: center; color: #f472b6; background: rgba(236, 72, 153, 0.1); border: 1px solid #ec4899; border-radius: 8px; margin-top: 20px;';
+                 mallowInfo.innerHTML = `
+                    <h3 style="color: #f472b6; margin: 0 0 10px 0;">🌸 Mallow Might</h3>
+                    <p style="margin: 0 0 15px 0; font-size: 16px;">Physics-based auto-battler with roguelike elements.</p>
+                    <button id="mallow-start-btn" class="menu-btn" style="padding: 12px 24px; font-size: 16px; background: #db2777; border-color: #ec4899;">
+                        Start Adventure
+                    </button>
+                 `;
+                 mapGridParent.insertBefore(mallowInfo, mapGrid);
+                 
+                 document.getElementById('mallow-start-btn')?.addEventListener('click', () => {
+                     this.loadMap('mallow');
+                 });
+             } else if (mallowInfo) {
+                 mallowInfo.style.display = 'block';
+             }
+             
+             // Hide others
+            const mobaInfo = document.getElementById('moba-info');
+            if (mobaInfo) mobaInfo.style.display = 'none';
+            
+        } else if (mode === 'moba') {
             
             // Show MOBA info message with start button
             let mobaInfo = document.getElementById('moba-info');
@@ -174,6 +220,8 @@ export class MenuSystem {
             // Hide MOBA info if it exists
             const mobaInfo = document.getElementById('moba-info');
             if (mobaInfo) mobaInfo.style.display = 'none';
+            const mallowInfo = document.getElementById('mallow-info');
+            if (mallowInfo) mallowInfo.style.display = 'none';
         }
     }
 
@@ -333,6 +381,11 @@ export class MenuSystem {
                 mapName = 'moba'; // Use special map name for MOBA
             }
 
+            // Cleanup previous Game Mode
+            if (this.game.gameMode) {
+                this.game.gameMode.dispose();
+            }
+
             // Switch Game Mode
             if (modeValue === 'rl-training') {
                 // RL Training Mode
@@ -358,6 +411,8 @@ export class MenuSystem {
                 this.game.gameMode = new FreeForAllGameMode(this.game);
             } else if (modeValue === 'moba') {
                 this.game.gameMode = new MOBAGameMode(this.game);
+            } else if (modeValue === 'mallow') {
+                this.game.gameMode = new MallowMightGameMode(this.game);
             } else {
                 // Default to TDM
                 this.game.gameMode = new TeamDeathmatchGameMode(this.game);

@@ -38,7 +38,33 @@ export class LevelGenerator {
                 console.log(`Generating MOBA map`);
                 const mobaGenerator = new MOBAMapGenerator(this.game);
                 mobaGenerator.generate();
-                // MOBA mode handles its own initialization
+            // MOBA mode handles its own initialization
+                return;
+            }
+            
+            // Check if Mallow Might mode - generate procedural arena or just setup empty scene
+            // Check by constructor name or just the mapName 'mallow'
+            if ((this.game.gameMode && this.game.gameMode.constructor.name === 'MallowMightGameMode') || mapName === 'mallow') {
+                console.log('Generating Mallow Might Arena');
+                 // Create a simple floor for the "Arena" (Launches)
+                 // The MallowGameMode generates visual map nodes logic itself.
+                 
+                 // Basic Arena Floor (Grass)
+                 const floorGeo = new THREE.BoxGeometry(100, 1, 100);
+                 const floorMat = new THREE.MeshStandardMaterial({ color: 0x228B22 }); // Forest Green
+                 const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+                 floorMesh.position.set(0, -0.5, 0);
+                 floorMesh.receiveShadow = true;
+                 this.game.scene.add(floorMesh);
+                 
+                 const floorShape = new CANNON.Box(new CANNON.Vec3(50, 0.5, 50));
+                 const floorBody = new CANNON.Body({ mass: 0, shape: floorShape }); // Static
+                 floorBody.position.set(0, -0.5, 0);
+                 this.game.world.addBody(floorBody);
+                 
+                 // Add some walls to keep them in?
+                 // Let's rely on falling off for now (death plane logic needed?)
+                 // MallowGameMode creates units.
                 return;
             }
 

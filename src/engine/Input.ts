@@ -5,8 +5,10 @@ export class Input {
     private mouseButtons: Map<number, boolean> = new Map();
     private previousMouseButtons: Map<number, boolean> = new Map();
     public mouseDelta: { x: number, y: number } = { x: 0, y: 0 };
+    public mousePosition: { x: number, y: number } = { x: 0, y: 0 }; // Normalized -1 to 1
     public isPointerLocked: boolean = false;
     public isEditorActive: boolean = false;
+    public autoLock: boolean = true;
     private previousKeys: Map<string, boolean> = new Map();
     private settingsManager: SettingsManager;
 
@@ -26,10 +28,12 @@ export class Input {
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (this.isPointerLocked) {
-                this.mouseDelta.x += e.movementX;
-                this.mouseDelta.y += e.movementY;
-            }
+            // Normalize mouse position (-1 to +1) for Raycasting
+            this.mousePosition.x = (e.clientX / window.innerWidth) * 2 - 1;
+            this.mousePosition.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            this.mouseDelta.x += e.movementX;
+            this.mouseDelta.y += e.movementY;
         });
 
         document.addEventListener('pointerlockchange', () => {
@@ -61,18 +65,20 @@ export class Input {
             this.previousMouseButtons.clear();
         });
 
+
+
         // Auto-relock on click if we should be locked (handled by game state usually, but this helps)
         document.addEventListener('click', () => {
-            if (!this.isPointerLocked && !this.isMenuVisible() && !this.isEditorActive) {
+            if (this.autoLock && !this.isPointerLocked && !this.isMenuVisible() && !this.isEditorActive) {
                 this.lockCursor();
             }
         });
         
         // Clear all key states when window loses focus (fixes stuck keys after alt-tab)
         // Only clear if we actually lost focus (not just pointer lock)
-        let isWindowFocused = true;
+        // Clear all key states when window loses focus (fixes stuck keys after alt-tab)
+        // Only clear if we actually lost focus (not just pointer lock)
         window.addEventListener('blur', () => {
-            isWindowFocused = false;
             // Clear all keys to prevent stuck key states
             this.keys.clear();
             this.mouseButtons.clear();
@@ -82,13 +88,6 @@ export class Input {
             this.mouseDelta.y = 0;
         });
         
-        window.addEventListener('focus', () => {
-            isWindowFocused = true;
-        });
-        
-        // Auto-relock when window regains focus (fixes alt-tab issue)
-        // Note: Browsers require user gesture for pointer lock, so we can't auto-lock on focus
-        // Instead, we'll rely on the click handler to re-lock
         window.addEventListener('focus', () => {
             // Clear all keys again to ensure clean state (in case blur didn't fire)
             this.keys.clear();

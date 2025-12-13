@@ -258,7 +258,11 @@ export class Game {
     public start() {
         if (this.isRunning) return;
         this.isRunning = true;
-        this.input.lockCursor(); // Start locked
+        
+        // Only lock if NOT Mallow Mode (which is pointer-based)
+        if (this.gameMode.constructor.name !== 'MallowMightGameMode') {
+            this.input.lockCursor(); 
+        }
 
         // Resume audio context (browser autoplay policy)
         this.soundManager.resume();
@@ -278,7 +282,10 @@ export class Game {
         if (this.isPaused) {
             this.input.unlockCursor();
         } else {
-            this.input.lockCursor();
+            // Restore lock only if appropriate
+            if (this.gameMode.constructor.name !== 'MallowMightGameMode') {
+                this.input.lockCursor();
+            }
         }
     }
 

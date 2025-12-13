@@ -85,7 +85,9 @@ export class Grenade {
                 if (go && 'takeDamage' in go) {
                     const dmg = Math.floor((1 - (dist / this.radius)) * this.damage);
                     if (dmg > 0) {
-                        (go as any).takeDamage(dmg);
+                        const forceDir = b.position.vsub(pos).unit(); // Normalized direction
+                        const forceMag = (this.radius - dist) * 10; // Impulse magnitude
+                        (go as any).takeDamage(dmg, forceDir, forceMag, this); // added forceDir, forceMag, attacker(this grenade)
                     }
                 }
             }

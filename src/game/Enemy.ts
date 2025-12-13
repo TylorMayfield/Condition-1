@@ -163,7 +163,7 @@ export class Enemy extends GameObject {
         });
     }
 
-    public takeDamage(amount: number, forceDir: THREE.Vector3, forceMagnitude: number, attacker?: any, hitObject?: THREE.Object3D) {
+    public takeDamage(amount: number, forceDir: THREE.Vector3 = new THREE.Vector3(0, 0, 0), forceMagnitude: number = 0, attacker?: any, hitObject?: THREE.Object3D) {
         if (this.isRagdoll) return; // Already dead/ragdolled
 
         // Calculate damage multiplier based on body part hit

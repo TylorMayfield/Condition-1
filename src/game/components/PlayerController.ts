@@ -106,26 +106,29 @@ export class PlayerController {
     }
 
     private handleMovement() {
+        const body = this.gameObject.body;
+        if (!body) return;
+
+        if (this.isNoclip) {
+            this.handleNoclipMovement(body);
+            return;
+        }
+
         // Round Start Check
         if (!this.game.gameMode.canPlayerMove()) {
             // Apply zero velocity to stop any rigid body momentum immediately if needed, 
             // or just return to let friction take over (but updating velocity to 0 checks input).
             // If we just return, momentum might carry us.
             // Better to explicitly damping or just zero out horizontal velocity if ground based.
-            if (this.gameObject.body && this.checkGrounded()) {
-                this.gameObject.body.velocity.x = 0;
-                this.gameObject.body.velocity.z = 0;
+            if (this.checkGrounded()) {
+                body.velocity.x = 0;
+                body.velocity.z = 0;
             }
-            return;
-        }
 
-        const body = this.gameObject.body;
-        if (!body) return;
-
-
-
-        if (this.isNoclip) {
-            this.handleNoclipMovement(body);
+            // DEBUG: Why are we frozen?
+            if (Math.random() < 0.01) { // Log infrequently
+                 console.log("Movement Blocked by GameMode.canPlayerMove() == false");
+            }
             return;
         }
 
@@ -166,15 +169,20 @@ export class PlayerController {
         // Sprint cancels Prone/Crouch (if possible)
         if (this.game.input.getAction('Sprint')) {
             if (this.isProne) this.isProne = false;
-            // Optional: cancel crouch on sprint? Usually yes.
-            // if (this.targetCrouch > 0 && !this.checkCeiling()) this.targetCrouch = 0;
+            
+            // Auto-stand if trying to sprint
+            if (this.targetCrouch > 0 && !this.checkCeiling()) {
+                this.targetCrouch = 0;
+            }
         }
 
         // Remove legacy hardcoded keys
         // if (this.game.input.getKeyDown('KeyZ')) ... 
 
         this.isCrouching = this.targetCrouch > 0.5 && !this.isProne;
-        const currentSpeed = this.isProne ? 1.5 : (this.isCrouching ? this.crouchSpeed : (this.game.input.getAction('Sprint') ? this.runSpeed : this.speed));
+        // Ensure we don't apply sprint speed if we are still forced to crouch
+        const isActuallySprinting = this.game.input.getAction('Sprint') && !this.isCrouching && !this.isProne;
+        const currentSpeed = this.isProne ? 1.5 : (this.isCrouching ? this.crouchSpeed : (isActuallySprinting ? this.runSpeed : this.speed));
 
         // Direction
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
@@ -318,7 +326,15 @@ export class PlayerController {
         const result = new CANNON.RaycastResult();
         ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
 
-        return result.hasHit;
+        if (result.hasHit) {
+             // Ignore self-hit
+             if (result.body === this.gameObject.body) {
+                 return false;
+             }
+             return true;
+        }
+
+        return false;
     }
 
     private initFlashlight() {

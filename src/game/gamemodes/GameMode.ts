@@ -20,6 +20,9 @@ export abstract class GameMode {
 
     public abstract init(): void;
     public abstract update(dt: number): void;
+    
+    /** Called when the game mode is being unloaded */
+    public dispose(): void { }
 
     // ========== Entity Lifecycle Hooks ==========
     
