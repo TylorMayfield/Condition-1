@@ -54,7 +54,7 @@ export class LevelEditorUI {
         grid.style.gridTemplateColumns = '1fr 1fr';
         grid.style.gridTemplateRows = '1fr 1fr';
         grid.style.gap = '2px';
-        grid.style.backgroundColor = '#333'; // Gap color (visible between viewports)
+        grid.style.backgroundColor = 'transparent'; // Transparent so we see the canvas. Gaps will show clearColor.
         grid.style.pointerEvents = 'auto'; // Grid area captures events
         container.appendChild(grid);
 

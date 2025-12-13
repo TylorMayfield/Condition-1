@@ -168,21 +168,17 @@ export class Enemy extends GameObject {
 
         // Calculate damage multiplier based on body part hit
         let multiplier = 1.0;
-        let hitZone = 'body';
+
 
         if (hitObject && hitObject.name) {
             if (hitObject.name === 'hitbox_head') {
                 multiplier = 2.5; // Headshot: 2.5x damage
-                hitZone = 'head';
             } else if (hitObject.name === 'hitbox_body') {
                 multiplier = 1.0; // Torso: normal damage
-                hitZone = 'body';
             } else if (hitObject.name === 'hitbox_arm') {
                 multiplier = 0.6; // Arm: reduced damage
-                hitZone = 'arm';
             } else if (hitObject.name === 'hitbox_leg') {
                 multiplier = 0.6; // Leg: reduced damage
-                hitZone = 'leg';
             }
         }
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game } from '../../engine/Game';
+
 
 /**
  * Manages the Three.js scene for the editor.
@@ -9,11 +9,11 @@ export class EditorScene {
     private scene: THREE.Scene;
     private gridHelper: THREE.GridHelper;
     private axesHelper: THREE.AxesHelper;
-    private light: THREE.DirectionalLight;
-    private ambientLight: THREE.AmbientLight;
+    private light?: THREE.DirectionalLight;
+    private ambientLight?: THREE.AmbientLight;
 
-    constructor(scene: THREE.Scene) {
-        this.scene = scene;
+    constructor() {
+        this.scene = new THREE.Scene();
 
         // 1. Grid Helper (Classic Hammer/Source style: Grey grid)
         // Size: 2000 units, Divisions: 64 (approx 32 units per cell)
@@ -28,31 +28,51 @@ export class EditorScene {
         this.scene.add(this.axesHelper);
 
         // 3. Editor Lighting (Flat, bright enough to see everything)
-        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        this.ambientLight.visible = false;
-        this.scene.add(this.ambientLight);
-
-        this.light = new THREE.DirectionalLight(0xffffff, 0.8);
-        this.light.position.set(50, 100, 50);
-        this.light.visible = false;
-        this.scene.add(this.light);
+        // Note: Lights in a separate scene won't affect the main scene unless we compose them?
+        // Actually, for Editor View, we often WANT these lights to light up the main scene content.
+        // But if they are in 'this.scene' (local), they only light objects in 'this.scene'.
+        // The objects (Brushes) are in Game.Scene.
+        // So we should KEEP Lights in the Game Scene, OR duplicate them?
+        // Or LevelEditor renders Main Scene, then Editor Scene.
+        // If Main Scene has no lights, Brushes are black.
+        // So EditorScene should probably manage lights injections into Game Scene, or LevelEditor does it.
+        // Let's Keep lights management separate or keep them in Game Scene?
+        // If we want to solve the CRASH, the crash is caused by Geometry (GridHelper).
+        // Lights are fine.
+        // So let's put Grids in Local Scene, but Lights in Game Scene?
+        // Or just put Lights in Local Scene and assume level has lights?
+        // Usually Editor needs its own "Fullbright" light.
+        // Let's attach lights to Game Scene for now, but Grid to Local.
+    }
+    
+    // We need access to Game Scene for lights
+    public attachLights(gameScene: THREE.Scene) {
+         this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+         this.ambientLight.visible = false;
+         gameScene.add(this.ambientLight);
+         
+         this.light = new THREE.DirectionalLight(0xffffff, 0.8);
+         this.light.position.set(50, 100, 50);
+         this.light.visible = false;
+         gameScene.add(this.light);
+    }
+    
+    public getScene(): THREE.Scene {
+        return this.scene;
     }
 
     public enable(): void {
         this.gridHelper.visible = true;
         this.axesHelper.visible = true;
-        this.ambientLight.visible = true;
-        this.light.visible = true;
-
-        // Hide game specific stuff? 
-        // For now, we assume we might be in an empty world or we clear it.
+        if (this.ambientLight) this.ambientLight.visible = true;
+        if (this.light) this.light.visible = true;
     }
 
     public disable(): void {
         this.gridHelper.visible = false;
         this.axesHelper.visible = false;
-        this.ambientLight.visible = false;
-        this.light.visible = false;
+        if (this.ambientLight) this.ambientLight.visible = false;
+        if (this.light) this.light.visible = false;
     }
 
     public getGrid(): THREE.GridHelper {

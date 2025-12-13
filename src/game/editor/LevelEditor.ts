@@ -55,7 +55,8 @@ export class LevelEditor {
     constructor(game: Game) {
         this.game = game;
         this.ui = new LevelEditorUI(this);
-        this.editorScene = new EditorScene(this.game.scene);
+        this.editorScene = new EditorScene();
+        this.editorScene.attachLights(this.game.scene);
 
         // 3D Camera (Attach to specific viewport)
         // Note: EditorCamera might need updating if it expects to bind to document.body
@@ -292,11 +293,7 @@ export class LevelEditor {
         renderer.setViewport(left, bottom, width, height);
         renderer.setScissor(left, bottom, width, height);
 
-        // DEBUG: Force Top view to be Red to verify Scissor works
-        if (container === this.ui.viewTop) {
-            renderer.setClearColor(0x330000, 1);
-            renderer.clearColor();
-        }
+
 
 
         // Update Ortho Camera Aspect
@@ -333,6 +330,10 @@ export class LevelEditor {
         } else {
             renderer.render(this.game.scene, camera);
         }
+
+        // Render Editor Scene (Grid/Axes) - No override material
+        renderer.clearDepth();
+        renderer.render(this.editorScene.getScene(), camera);
 
         // Render Grid
         if (grid) {

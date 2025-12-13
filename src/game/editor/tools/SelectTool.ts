@@ -25,10 +25,9 @@ export class SelectTool implements EditorTool {
             this.controls.addEventListener('change', () => {
                 // Update brush logical data when mesh changes
             });
-            // Manually add to scene bypassing the instanceof check that fails with multiple THREE instances
+            // Add to scene properly
             const scene = game.scene;
-            scene.children.push(this.controls as any);
-            (this.controls as any).parent = scene;
+            scene.add(this.controls as unknown as THREE.Object3D);
         }
         return this.controls;
     }
