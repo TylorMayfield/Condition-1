@@ -57,6 +57,14 @@ export abstract class Weapon {
         // Wait
         await new Promise(resolve => setTimeout(resolve, this.reloadTime));
 
+        // Safety check: if weapon was switched away, cancel (or keep existing logic? 
+        // User reports "locked state" on switch. If we switch away, this promise continues.
+        // If we switch back, isReloading is still true.
+        // If we are disabled, we should probably just finish quietly or abort.
+        // If we abort, isReloading stays true forever? No, we must clear it.
+        // But if we finish, we get ammo.
+        // Let's ensure we reset isReloading even if something weird happens.
+
         const needed = this.magazineSize - this.currentAmmo;
         const toAdd = Math.min(needed, this.reserveAmmo);
 

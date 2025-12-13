@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { GameMode, type ScoreData } from './GameMode';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
@@ -37,8 +38,7 @@ export class MOBAGameMode extends GameMode {
     // Game state
     private gameActive: boolean = false;
     private minionSpawnTimer: number = 0;
-    private readonly minionSpawnInterval: number = 30; // Spawn every 30 seconds
-    private minionsPerWave: number = 6; // 3 per lane
+    private minionSpawnInterval: number = 30; // Spawn every 30 seconds
     private waveNumber: number = 0;
 
     // Teams
@@ -129,7 +129,6 @@ export class MOBAGameMode extends GameMode {
         // Mid lane: Z = 0, X from -50 to 50
         // Bot lane: Z = -20, X from -50 to 50
         
-        const laneWidth = 8; // Width of each lane
         const baseDistance = 100; // Distance between bases
         const segments = 20; // Number of waypoints per lane
 
@@ -137,14 +136,21 @@ export class MOBAGameMode extends GameMode {
             const t = i / segments;
             const x = -baseDistance / 2 + (baseDistance * t);
 
+            // Add curve around towers (at -15 and +15)
+            // Towers are approx 3 units wide, assume safe radius 5
+            let zOffset = 0;
+            if (Math.abs(x - (-15)) < 5 || Math.abs(x - 15) < 5) {
+                zOffset = 6; // Go around to the "positive Z" side relative to lane center
+            }
+
             // Top lane
-            this.lanes.top.push(new THREE.Vector3(x, 0, 20));
+            this.lanes.top.push(new THREE.Vector3(x, 0, 20 + zOffset));
             
             // Mid lane
-            this.lanes.mid.push(new THREE.Vector3(x, 0, 0));
+            this.lanes.mid.push(new THREE.Vector3(x, 0, 0 + zOffset));
             
             // Bot lane
-            this.lanes.bot.push(new THREE.Vector3(x, 0, -20));
+            this.lanes.bot.push(new THREE.Vector3(x, 0, -20 + zOffset));
         }
 
         // Define tower positions (1 tower per lane per team = 3 per team total)
@@ -211,7 +217,7 @@ export class MOBAGameMode extends GameMode {
         nexus.mesh.receiveShadow = true;
 
         // Physics: Static body
-        const CANNON = require('cannon-es');
+        // const CANNON = require('cannon-es'); // Use import
         const shape = new CANNON.Box(new CANNON.Vec3(3, 3, 3));
         nexus.body = new CANNON.Body({
             mass: 0,
@@ -326,7 +332,7 @@ export class MOBAGameMode extends GameMode {
         });
         
         // Show individual tower healths
-        blueTowers.forEach((tower, index) => {
+        blueTowers.forEach((tower) => {
             const healthPercent = Math.round((tower.health / tower.maxHealth) * 100);
             data.push({
                 name: `Blue Tower ${tower.lane}`,
@@ -336,7 +342,7 @@ export class MOBAGameMode extends GameMode {
             });
         });
         
-        redTowers.forEach((tower, index) => {
+        redTowers.forEach((tower) => {
             const healthPercent = Math.round((tower.health / tower.maxHealth) * 100);
             data.push({
                 name: `Red Tower ${tower.lane}`,

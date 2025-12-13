@@ -36,7 +36,7 @@ export class Minion extends GameObject {
         const headGeo = new THREE.SphereGeometry(0.25, 8, 8);
         
         const mat = new THREE.MeshStandardMaterial({ 
-            color: team === 'Blue' ? 0x0066ff : 0xff0000
+            color: (team && team.toLowerCase() === 'blue') ? 0x0066ff : 0xff0000
         });
 
         const body = new THREE.Mesh(bodyGeo, mat);
@@ -210,7 +210,7 @@ export class Minion extends GameObject {
         }
     }
 
-    private followLanePath(dt: number): void {
+    private followLanePath(_dt: number): void {
         if (!this.body || this.currentPathIndex >= this.lanePath.length) return;
 
         const targetWaypoint = this.lanePath[this.currentPathIndex];
@@ -261,8 +261,9 @@ export class Minion extends GameObject {
     
     private checkForObstacle(myPos: THREE.Vector3, direction: THREE.Vector3): GameObject | null {
         // Check for friendly towers in the path
-        const checkDistance = 5; // Check 5 units ahead
-        const checkPos = myPos.clone().add(direction.normalize().multiplyScalar(checkDistance));
+        // Check for friendly towers in the path
+        // const checkDistance = 5; // Check 5 units ahead
+        // const checkPos = myPos.clone().add(direction.normalize().multiplyScalar(checkDistance));
         
         const gameObjects = this.game.getGameObjects();
         for (const obj of gameObjects) {
@@ -322,9 +323,13 @@ export class Minion extends GameObject {
 
         // Deal damage
         if (this.currentTarget instanceof Enemy) {
-            this.currentTarget.takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this, null);
-        } else if ((this.currentTarget as any).takeDamage) {
-            (this.currentTarget as any).takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this, null);
+            this.currentTarget.takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this, undefined);
+        } else if (this.currentTarget) {
+            // Safety check for other objects
+             const target = this.currentTarget as any;
+             if (target.takeDamage) {
+                target.takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this, undefined);
+             }
         }
 
         // Visual feedback: Attack animation
@@ -347,13 +352,14 @@ export class Minion extends GameObject {
         if (this.mesh) {
             this.mesh.children.forEach((child) => {
                 if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-                    const originalColor = child.material.color.clone();
                     // Flash red to indicate damage, not white/gray
                     child.material.color.setHex(0xff0000);
                     setTimeout(() => {
                         if (child.material instanceof THREE.MeshStandardMaterial && this.health > 0) {
                             // Only restore color if still alive
-                            child.material.color.copy(originalColor);
+                            // Force correct team color restoration to avoid any "locked" wrong color
+                            const correctColor = (this.team && this.team.toLowerCase() === 'blue') ? 0x0066ff : 0xff0000;
+                            child.material.color.setHex(correctColor);
                         }
                     }, 100);
                 }

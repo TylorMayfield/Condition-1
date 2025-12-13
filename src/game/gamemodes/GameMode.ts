@@ -13,6 +13,8 @@ export abstract class GameMode {
 
     // Movement control hook
     public canPlayerMove(): boolean {
+        // By default, player can always move.
+        // Derived classes can override this (e.g. countdown, cutscene)
         return true;
     }
 

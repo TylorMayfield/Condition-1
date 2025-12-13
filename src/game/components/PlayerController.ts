@@ -130,6 +130,10 @@ export class PlayerController {
         }
 
         // Mode Input Handling
+        // DEBUG: Trace movement lock
+        if (this.game.input.getAction('MoveForward') || this.game.input.getKey('KeyW')) {
+            // console.log("Attempting MoveForward", { isNoclip: this.isNoclip, canMove: this.game.gameMode.canPlayerMove() });
+        }
         if (this.game.input.getActionDown('Crouch')) {
             const now = performance.now();
             if (now - this.lastCrouchTime < 300) {
@@ -181,6 +185,11 @@ export class PlayerController {
         if (this.game.input.getAction('MoveBackward')) velocity.sub(forward);
         if (this.game.input.getAction('MoveRight')) velocity.add(right);
         if (this.game.input.getAction('MoveLeft')) velocity.sub(right); // Settings says A is Left
+
+        // DEBUG: Trace movement inputs
+        // if (this.game.input.getAction('MoveForward')) {
+             // console.log(`[PlayerMovement] Input Active. Locked: ${this.game.input.isPointerLocked} CanMove: ${this.game.gameMode.canPlayerMove()} Velocity: ${velocity.length()}`);
+        // }
 
         if (velocity.length() > 0) velocity.normalize().multiplyScalar(currentSpeed);
 

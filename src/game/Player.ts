@@ -101,7 +101,11 @@ export class Player extends GameObject {
             // but we can poll for now if Input class supports delta, 
             // or just rely on Controller.
 
-            (currentWeapon as any).update(dt, this.game.camera, this.controller);
+            try {
+                (currentWeapon as any).update(dt, this.game.camera, this.controller);
+            } catch (err) {
+                console.error("Weapon Update Error:", err);
+            }
         }
 
         this.updateHUD();
