@@ -40,6 +40,6 @@
     "onnxruntime-web": "^1.23.2",
     "recast-navigation": "^0.43.0",
     "three": "^0.181.2",
-    "vitest": "^4.0.15"
+    "vitest": "^4.0.16"
   }
 }
