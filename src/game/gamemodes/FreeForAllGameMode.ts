@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { GameMode } from './GameMode';
+import { GameModeId } from './GameModeId';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
 import { Enemy } from '../Enemy';
 
 export class FreeForAllGameMode extends GameMode {
+    readonly id = GameModeId.FFA;
+
     public enemyCount: number = 0;
     public maxEnemies: number = 10;
     private spawnTimer: number = 0;

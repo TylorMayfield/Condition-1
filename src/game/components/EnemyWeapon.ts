@@ -3,68 +3,97 @@ import { Game } from '../../engine/Game';
 import { Weapon } from './Weapon';
 import { Enemy } from '../Enemy';
 
+import type { AIPersonality } from '../ai/AIPersonality';
+
+export interface FireContext {
+    moving?: boolean;
+    suppressed?: boolean;
+    distance?: number;
+    personality?: AIPersonality;
+    accuracyScale?: number;
+    inCover?: boolean;
+}
+
 export class EnemyWeapon extends Weapon {
+    private burstShotsRemaining = 0;
+    private burstPauseUntil = 0;
+
     constructor(game: Game, owner: Enemy) {
         super(game, owner);
         this.createWeaponModel();
 
-        // Enemy Weapon Stats
-        this.damage = 10; // Lower damage than player
-        this.fireRate = 500; // Slower fire rate
+        this.damage = 8;
+        this.fireRate = 120;
         this.muzzleVelocity = 80;
-        this.magazineSize = 1000; // Infinite ammo mostly
-        this.currentAmmo = 1000;
+        this.magazineSize = 30;
+        this.currentAmmo = 30;
+        this.reserveAmmo = 90;
+        this.reloadTime = 2200;
     }
 
     private createWeaponModel() {
-        // Simple Enemy Gun (Grey Box)
         const barrelGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
         const barrelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
         const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-        barrel.position.set(0, 0, 0.3); // Forward relative to hand
+        barrel.position.set(0, 0, 0.3);
         this.mesh.add(barrel);
     }
 
     public update(_dt: number) {
-        // AI handles aiming, this just updates internals if needed
-        // Helper to visualize?
+        if (this.currentAmmo <= 0 && !this.isReloading && this.reserveAmmo > 0) {
+            void this.reload();
+        }
     }
 
     public aimAt(targetPosition: THREE.Vector3) {
         this.mesh.lookAt(targetPosition);
     }
 
-    public pullTrigger(targetPosition: THREE.Vector3) {
+    /**
+     * Fire in short bursts with pauses — closer to human rifle discipline.
+     */
+    public pullTrigger(targetPosition: THREE.Vector3, context: FireContext = {}) {
         const now = Date.now();
-        if (now - this.lastShot > this.fireRate) {
-            // Muzzle position
-            // In world space, mesh is attached to enemy hand/body.
-            // We need world position of muzzle.
-            const worldMuzzle = new THREE.Vector3();
-            this.mesh.children[0].getWorldPosition(worldMuzzle);
+        if (this.isReloading || now < this.burstPauseUntil) return;
 
-            // Direction with slight inaccuracy
-            const direction = targetPosition.clone().sub(worldMuzzle).normalize();
+        if (this.burstShotsRemaining <= 0) {
+            if (now - this.lastShot < 500 + Math.random() * 400) return;
+            this.burstShotsRemaining = 2 + Math.floor(Math.random() * 3);
+        }
 
-            // Add spread (more human-like inaccuracy)
-            const spreadAmount = 0.15; // Increased from 0.05
-            direction.x += (Math.random() - 0.5) * spreadAmount;
-            direction.y += (Math.random() - 0.5) * spreadAmount;
-            direction.z += (Math.random() - 0.5) * spreadAmount;
-            direction.normalize();
+        if (now - this.lastShot < this.fireRate) return;
 
-            // Randomize damage for this shot (5 to 15)
-            const originalDamage = this.damage;
-            this.damage = Math.floor(5 + Math.random() * 11);
+        const worldMuzzle = new THREE.Vector3();
+        this.mesh.children[0].getWorldPosition(worldMuzzle);
 
-            this.shoot(worldMuzzle, direction);
+        const direction = targetPosition.clone().sub(worldMuzzle).normalize();
 
-            this.damage = originalDamage; // Restore base damage (though it doesn't matter much if we randomize every time)
+        let spread = 0.08;
+        if (context.moving) spread += 0.06;
+        if (context.suppressed) spread += 0.04;
+        if (context.inCover) spread -= 0.02;
+        if (context.distance && context.distance > 25) spread += 0.04;
+        if (context.distance && context.distance > 35) spread += 0.06;
+        if (context.personality === 1) spread *= 0.55; // Sniper
+        if (context.personality === 2 && !context.moving) spread *= 0.75; // Tactical planted shots
+        if (context.accuracyScale) spread *= context.accuracyScale;
+        spread = Math.max(0.02, spread);
+
+        direction.x += (Math.random() - 0.5) * spread;
+        direction.y += (Math.random() - 0.5) * spread;
+        direction.z += (Math.random() - 0.5) * spread;
+        direction.normalize();
+
+        const originalDamage = this.damage;
+        this.damage = Math.floor(4 + Math.random() * 7);
+        this.shoot(worldMuzzle, direction);
+        this.damage = originalDamage;
+
+        this.burstShotsRemaining--;
+        if (this.burstShotsRemaining <= 0) {
+            this.burstPauseUntil = now + 450 + Math.random() * 750;
         }
     }
-
-    // State for Muzzle Flash
-    // Optimized: Removed Muzzle Flash completely per user request
 
     public dispose() {
         super.dispose();

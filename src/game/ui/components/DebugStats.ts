@@ -43,46 +43,31 @@ export class DebugStats extends HUDComponent {
 
     private createFPSDisplay(): HTMLElement {
         const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.top = '10px';
-        div.style.left = '10px';
-        div.style.fontSize = '14px';
-        div.style.color = '#00ff00';
+        div.className = 'hud-debug hud-debug--fps';
         div.innerText = 'FPS: 60';
         return div;
     }
 
     private createPosDisplay(): HTMLElement {
         const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.top = '50px';
-        div.style.left = '50%';
-        div.style.transform = 'translateX(-50%)';
-        div.style.fontSize = '12px';
-        div.style.color = 'rgba(0, 255, 0, 0.7)';
+        div.className = 'hud-debug hud-debug--pos';
         div.innerText = 'POS: 0 0 0';
         return div;
     }
 
     private createVelDisplay(): HTMLElement {
         const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.top = '70px';
-        div.style.left = '50%';
-        div.style.transform = 'translateX(-50%)';
-        div.style.fontSize = '12px';
-        div.style.color = 'rgba(0, 255, 255, 0.7)';
+        div.className = 'hud-debug hud-debug--vel';
         div.innerText = 'VEL: 0.00 m/s';
         return div;
     }
 
     private createNavDisplay(): HTMLElement {
         const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.top = '30px';
-        div.style.left = '10px';
-        div.style.fontSize = '12px';
-        div.style.color = '#ffff00';
+        div.className = 'hud-debug';
+        div.style.top = '44px';
+        div.style.left = '12px';
+        div.style.color = 'var(--c1-amber)';
         div.innerText = 'NAV: Loading...';
         return div;
     }
@@ -103,10 +88,10 @@ export class DebugStats extends HUDComponent {
         if (this.game.recastNav) {
             const agentCount = this.game.recastNav.getRegisteredAgentCount();
             this.navDisplay.innerText = `NAV: Recast Active (${agentCount} Agents)`;
-            this.navDisplay.style.color = '#00ff00';
+            this.navDisplay.style.color = 'var(--c1-glow)';
         } else {
             this.navDisplay.innerText = `NAV: Recast Missing`;
-            this.navDisplay.style.color = 'red';
+            this.navDisplay.style.color = 'var(--c1-red)';
         }
 
         // Update Position (Physics synchronized)
@@ -178,13 +163,15 @@ export class DebugStats extends HUDComponent {
                     label.style.left = `${x}px`;
                     label.style.top = `${y}px`;
                     label.style.transform = 'translate(-50%, -100%)';
-                    label.style.color = '#fff';
-                    label.style.fontSize = '12px';
-                    label.style.backgroundColor = 'rgba(0,0,0,0.5)';
-                    label.style.padding = '2px 5px';
-                    label.style.borderRadius = '3px';
+                    label.style.color = 'var(--c1-text)';
+                    label.style.fontSize = '11px';
+                    label.style.fontFamily = 'var(--c1-font-mono)';
+                    label.style.backgroundColor = 'rgba(6, 12, 16, 0.85)';
+                    label.style.padding = '4px 8px';
+                    label.style.borderRadius = '4px';
                     label.style.whiteSpace = 'nowrap';
-                    label.style.border = '1px solid #fff';
+                    label.style.border = '1px solid var(--c1-border)';
+                    label.style.boxShadow = '0 0 12px rgba(61, 214, 200, 0.1)';
 
                     const states = ['Idle', 'Chase', 'Attack', 'Roam', 'Alert', 'TakeCover', 'Flank', 'Advance', 'Follow'];
                     const stateName = states[ai.state] || 'Unknown';
@@ -199,7 +186,7 @@ export class DebugStats extends HUDComponent {
 
                     label.innerHTML = `
                         <b>${enemy.name || 'Enemy'}</b> [${ai.entityId}]<br>
-                        State: <span style="color:yellow">${stateName}</span><br>
+                        State: <span style="color:var(--c1-amber)">${stateName}</span><br>
                         Target: ${targetName}<br>
                         Vel: ${vel} m/s<br>
                         HP: ${enemy.health}

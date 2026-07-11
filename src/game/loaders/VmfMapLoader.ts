@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Game } from '../../engine/Game';
 import { VmfParser } from '../maps/VmfParser';
 import { VmfWorldBuilder } from '../maps/VmfWorldBuilder';
+import { extractGameplayMapData } from '../maps/GameplayMapData';
 
 export class VmfMapLoader {
     private game: Game;
@@ -24,6 +25,8 @@ export class VmfMapLoader {
 
             // Parse the VMF
             const mapData = VmfParser.parse(content);
+            this.game.currentMapName = mapName.replace(/\.vmf$/, '');
+            this.game.gameplayMapData = extractGameplayMapData(mapData.entities);
 
             // Setup lighting
             this.setupLighting();

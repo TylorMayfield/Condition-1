@@ -64,6 +64,14 @@ export class EditorCamera {
         document.removeEventListener('mouseup', this.onMouseUp);
         document.removeEventListener('mousemove', this.onMouseMove);
         this.domElement.removeEventListener('contextmenu', this.onContextMenu);
+
+        this.moveState.forward = false;
+        this.moveState.backward = false;
+        this.moveState.left = false;
+        this.moveState.right = false;
+        this.moveState.up = false;
+        this.moveState.down = false;
+        this.moveSpeed = 50;
     }
 
     public update(dt: number): void {

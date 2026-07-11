@@ -1,10 +1,22 @@
+@import './game/ui/theme.css';
+@import './game/ui/hud_styles.css';
+
 body {
   margin: 0;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  background: #070b0f;
+  font-family: var(--c1-font-ui);
 }
 
 canvas {
   display: block;
+}
+
+#game-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
 }

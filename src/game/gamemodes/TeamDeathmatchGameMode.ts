@@ -1,11 +1,21 @@
 
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { GameMode, type ScoreData } from './GameMode';
+import { GameModeId } from './GameModeId';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
 import { Enemy } from '../Enemy';
 import { SpectatorCameraController } from '../controllers/SpectatorCameraController';
+import type { TDMParticipant } from './tdm/TeamDeathmatchTypes';
+import { getTeamSpawnPosition } from './tdm/TeamDeathmatchSpawns';
+import { BombObjective } from '../objectives/BombObjective';
+import { DEFAULT_MATCH_RULES, ObjectiveState, RoundPhase } from './round/MatchTypes';
+import { EconomySystem } from '../economy/EconomySystem';
+import { validateDefusalMap } from '../maps/GameplayMapData';
+import { PurchaseService } from '../economy/PurchaseService';
+import { EQUIPMENT_CATALOG, canTeamBuy } from '../equipment/EquipmentCatalog';
+import { CampaignService, DEFUSAL_TOUR, type CampaignTeam } from '../campaign/CampaignService';
+import { AITeamCoordinator } from '../ai/AITeamCoordinator';
 
 /**
  * Round-Based Team Deathmatch
@@ -14,21 +24,24 @@ import { SpectatorCameraController } from '../controllers/SpectatorCameraControl
  * - Winning team gets a round point
  * - Game ends when a team reaches roundLimit wins
  */
-interface Participant {
-    id: string; // Unique, use uuid or just name if unique
-    name: string;
-    team: string; // 'TaskForce' or 'OpFor'
-    status: 'Alive' | 'Dead';
-    score: number; // Kills/Damage
-    objectRef: GameObject | null; // Null if dead/disposed
-}
-
 export class TeamDeathmatchGameMode extends GameMode {
+    readonly id: typeof GameModeId.TDM | typeof GameModeId.DEFUSAL;
+    public roundPhase: RoundPhase = RoundPhase.Warmup;
+    private readonly objectiveMode: boolean;
+    private bomb: BombObjective | null = null;
+    private bombCarrier: GameObject | null = null;
+    private economy = new EconomySystem();
+    private purchaseService = new PurchaseService(this.economy);
+    private playerSide: CampaignTeam = 'TaskForce';
+    private playerMatchWins: number = 0;
+    private opponentMatchWins: number = 0;
+    private halftimeComplete: boolean = false;
+
     // Round wins per team
     // ...
 
     // Persistent Scoreboard Data
-    private participants: Participant[] = [];
+    private participants: TDMParticipant[] = [];
     public roundWins: { [team: string]: number } = {
         'TaskForce': 0,
         'OpFor': 0
@@ -38,9 +51,9 @@ export class TeamDeathmatchGameMode extends GameMode {
     private persistentScores: Map<string, number> = new Map();
 
     // Round configuration
-    public roundLimit: number = 5; // First to 5 wins
+    public roundLimit: number;
     public botsPerTeam: number = 5; // 5 vs 5 target
-    public roundTimeLimit: number = 300; // 5 minutes per round in seconds
+    public roundTimeLimit: number;
 
     // Round state
     private roundActive: boolean = false;
@@ -58,24 +71,39 @@ export class TeamDeathmatchGameMode extends GameMode {
     // Countdown state
     private countdownActive: boolean = false;
     private countdownTimer: number = 0;
-    private readonly countdownDuration: number = 5; // 5 second countdown
+    private readonly countdownDuration: number;
+    private lastCountdownAnnounced: number = -1;
 
     // Track entities for this round (no respawning)
     private taskForceAlive: Set<GameObject> = new Set();
     private opForAlive: Set<GameObject> = new Set();
 
-    constructor(game: Game) {
+    constructor(game: Game, objectiveMode: boolean = false) {
         super(game);
+        this.objectiveMode = objectiveMode;
+        this.id = objectiveMode ? GameModeId.DEFUSAL : GameModeId.TDM;
+        this.roundLimit = objectiveMode ? DEFAULT_MATCH_RULES.roundsToWin : 5;
+        this.roundTimeLimit = objectiveMode ? DEFAULT_MATCH_RULES.roundTime : 300;
+        this.countdownDuration = objectiveMode ? DEFAULT_MATCH_RULES.freezeTime : 5;
+        this.bomb = objectiveMode ? new BombObjective(DEFAULT_MATCH_RULES) : null;
         this.spectatorController = new SpectatorCameraController(game);
     }
 
     public init(): void {
-        console.log("Initializing Round-Based Team Deathmatch");
+        console.log(this.objectiveMode ? 'Initializing MR8 Bomb Defusal' : 'Initializing Round-Based Team Deathmatch');
+        if (this.objectiveMode) {
+            this.playerSide = this.game.campaignTeam;
+            const errors = validateDefusalMap(this.game.gameplayMapData, this.game.availableSpawns.T.length, this.game.availableSpawns.CT.length);
+            if (errors.length) throw new Error(`Invalid defusal map: ${errors.join('; ')}`);
+        }
         this.roundWins['TaskForce'] = 0;
         this.roundWins['OpFor'] = 0;
         this.persistentScores.clear();
         this.roundNumber = 0;
         this.isGameOver = false;
+        this.playerMatchWins = 0;
+        this.opponentMatchWins = 0;
+        this.halftimeComplete = false;
 
         // Ensure clean state immediately to remove any HMR leftovers
         this.onRoundCleanup();
@@ -94,6 +122,8 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Handle countdown phase
         if (this.countdownActive) {
+            this.roundPhase = RoundPhase.Freeze;
+            if (this.objectiveMode && this.game.input.getKeyDown('KeyB')) this.openBuyMenu();
             this.countdownTimer -= dt;
             const secondsLeft = Math.ceil(this.countdownTimer);
             this.onCountdownTick(secondsLeft);
@@ -101,6 +131,7 @@ export class TeamDeathmatchGameMode extends GameMode {
             if (this.countdownTimer <= 0) {
                 this.countdownActive = false;
                 this.roundActive = true;
+                this.roundPhase = RoundPhase.Live;
                 this.aiEnabled = true;
                 this.onCountdownEnd();
             }
@@ -117,13 +148,15 @@ export class TeamDeathmatchGameMode extends GameMode {
         }
 
         // Update round timer during active round
+        if (this.objectiveMode && this.updateBombObjective(dt)) return;
         this.roundTimer -= dt;
-        (this.game.hudManager as any).showRoundTimer(this.getFormattedRoundTime());
+        this.hud.showRoundTimer(this.getFormattedRoundTime());
 
         // Check for round timeout
         if (this.roundTimer <= 0) {
-            (this.game.hudManager as any).hideRoundTimer();
-            this.onRoundTimeout();
+            this.hud.hideRoundTimer();
+            if (this.objectiveMode) this.endRound('TaskForce', 'Bomb was not planted');
+            else this.onRoundTimeout();
             return;
         }
 
@@ -136,6 +169,13 @@ export class TeamDeathmatchGameMode extends GameMode {
 
     private startNewRound(): void {
         this.onRoundCleanup(); // Clean up previous round
+
+        if (this.objectiveMode && !this.halftimeComplete && this.roundNumber === DEFAULT_MATCH_RULES.halftimeAfter) {
+            this.halftimeComplete = true;
+            this.playerSide = this.playerSide === 'TaskForce' ? 'OpFor' : 'TaskForce';
+            this.roundPhase = RoundPhase.Halftime;
+            this.hud.showHalftime();
+        }
 
         this.roundNumber++;
         this.roundEndTimer = 0;
@@ -152,10 +192,11 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Handle player spawn/spectator
         if (this.game.player) {
             if (!this.isSpectatorOnly) {
-                const spawnPos = this.getSpawnPosition('TaskForce', false) || new THREE.Vector3(0, 10, 0);
+                const spawnPos = this.getSpawnPosition(this.playerSide, false) || new THREE.Vector3(0, 10, 0);
                 if (this.onBeforeSpawn(this.game.player, spawnPos)) {
+                    this.game.player.team = this.playerSide === 'TaskForce' ? 'Player' : 'OpFor';
                     this.game.player.respawn(spawnPos);
-                    this.taskForceAlive.add(this.game.player);
+                    (this.playerSide === 'TaskForce' ? this.taskForceAlive : this.opForAlive).add(this.game.player);
                     this.isSpectating = false;
                     this.onAfterSpawn(this.game.player);
                 }
@@ -163,31 +204,49 @@ export class TeamDeathmatchGameMode extends GameMode {
                 this.onEnterSpectator();
             }
         }
+        if (this.objectiveMode) this.configureObjectiveRound();
 
         // Start countdown
         this.countdownActive = true;
         this.countdownTimer = this.countdownDuration;
         this.roundTimer = this.roundTimeLimit;
         this.roundActive = false;
+        this.roundPhase = RoundPhase.Freeze;
         this.onRoundStart(this.roundNumber);
         this.onCountdownStart(this.countdownDuration);
     }
 
     public onCountdownStart(_duration: number): void {
-        // Hook implementation - can be overridden if needed
+        this.lastCountdownAnnounced = -1;
     }
 
     public onCountdownTick(secondsRemaining: number): void {
-        (this.game.hudManager as any).showCountdown(secondsRemaining);
-        if (secondsRemaining <= 5 && secondsRemaining > 0) {
+        this.hud.showCountdown(secondsRemaining);
+
+        if (secondsRemaining <= 5 && secondsRemaining > 0 && secondsRemaining !== this.lastCountdownAnnounced) {
+            this.lastCountdownAnnounced = secondsRemaining;
             this.game.soundManager.playAnnouncerFile(`${secondsRemaining}.mp3`);
         }
     }
 
     public onCountdownEnd(): void {
-        (this.game.hudManager as any).hideCountdown();
+        this.hud.hideCountdown();
+        this.hud.hideBuyMenu();
         console.log(`=== ROUND ${this.roundNumber} - GO! ===`);
         this.game.soundManager.playAnnouncer("Execute Mission. Go Go Go!");
+    }
+
+    private openBuyMenu(): void {
+        const player = this.game.player;
+        if (!player?.body) return;
+        const pos = new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z);
+        const inZone = this.game.gameplayMapData.buyZones.some(zone => zone.contains(pos));
+        const balance = this.economy.balance('player');
+        this.hud.showBuyMenu(EQUIPMENT_CATALOG.filter(item => canTeamBuy(item, 'TaskForce')).map(item => ({ id: item.id, name: item.displayName, price: item.price, enabled: inZone && item.price <= balance && !player.equipmentIds.includes(item.id) })), itemId => {
+            const result = this.purchaseService.buy('player', 'TaskForce', itemId, player, this.countdownActive, inZone);
+            if (result.ok) { this.hud.showMoney(this.economy.balance('player')); this.openBuyMenu(); }
+            else this.hud.showObjectiveStatus(`Purchase failed: ${result.reason}`, true);
+        });
     }
 
     public onRoundStart(roundNumber: number): void {
@@ -239,7 +298,7 @@ export class TeamDeathmatchGameMode extends GameMode {
             this.participants.push({
                 id: 'player',
                 name: 'You',
-                team: 'TaskForce',
+                team: this.objectiveMode ? this.playerSide : 'TaskForce',
                 status: 'Alive',
                 score: playerScore,
                 objectRef: this.game.player
@@ -249,7 +308,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         // Spawn TaskForce bots (teammates)
         // Aim for 5 members total. If player exists and playing, spawn 4 bots.
         // If spectator only, spawn 5 bots to fill the team.
-        const teammateCount = this.isSpectatorOnly ? this.botsPerTeam : this.botsPerTeam - 1;
+        const teammateCount = this.isSpectatorOnly ? this.botsPerTeam : this.objectiveMode && this.playerSide === 'OpFor' ? this.botsPerTeam : this.botsPerTeam - 1;
 
         for (let i = 0; i < teammateCount; i++) {
             const spawnPos = this.getSpawnPosition('TaskForce', true) || new THREE.Vector3(0, 10, 0);
@@ -276,7 +335,8 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         // Spawn OpFor bots (enemies)
         // Spawn full team
-        for (let i = 0; i < this.botsPerTeam; i++) {
+        const opForCount = this.isSpectatorOnly ? this.botsPerTeam : this.objectiveMode && this.playerSide === 'OpFor' ? this.botsPerTeam - 1 : this.botsPerTeam;
+        for (let i = 0; i < opForCount; i++) {
             const spawnPos = this.getSpawnPosition('OpFor', true) || new THREE.Vector3(0, 10, 0);
             const name = `OpFor ${i + 1}`;
             const bot = new Enemy(this.game, spawnPos, 'OpFor', name);
@@ -308,73 +368,88 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.spectatorController.setTargets(allBots as GameObject[]);
     }
 
-    public getSpawnPosition(team: string, applyJitter: boolean = false): THREE.Vector3 | null {
-        const spawns = team === 'TaskForce' ? (this.game.availableSpawns?.CT || []) : (this.game.availableSpawns?.T || []);
-        return this.getSafeSpawnPosition(spawns, applyJitter);
+    private configureObjectiveRound(): void {
+        const sites = this.game.gameplayMapData.bombSites;
+        const attackerActors = [...this.opForAlive];
+        const attackers = attackerActors.filter((go): go is Enemy => go instanceof Enemy);
+        const defenders = [...this.taskForceAlive].filter((go): go is Enemy => go instanceof Enemy);
+        this.bombCarrier = attackerActors[(this.roundNumber - 1) % Math.max(1, attackerActors.length)] ?? null;
+        if (this.bombCarrier && this.bomb) this.bomb.reset(this.objectiveActorId(this.bombCarrier));
+        const selectedSite = sites[(this.roundNumber - 1) % sites.length];
+        const attackRoles = AITeamCoordinator.assignSquadRoles(attackers.length, true);
+        const defenseRoles = AITeamCoordinator.assignSquadRoles(defenders.length, false);
+        attackers.forEach((bot, i) => {
+            bot.ai.blackboard.objectiveDestination = selectedSite.center.clone();
+            bot.ai.blackboard.objectiveRole = bot === this.bombCarrier ? 'carrier' : attackRoles[i] === 'sniper' ? 'support' : attackRoles[i] as typeof bot.ai.blackboard.objectiveRole;
+        });
+        defenders.forEach((bot, i) => {
+            bot.ai.blackboard.objectiveDestination = sites[i % sites.length].center.clone();
+            bot.ai.blackboard.objectiveRole = defenseRoles[i] === 'kit-holder' ? 'rotator' : defenseRoles[i] as typeof bot.ai.blackboard.objectiveRole;
+            bot.hasDefuseKit = defenseRoles[i] === 'kit-holder';
+        });
+        for (const p of this.participants) this.economy.register(p.id);
+        const botBalances = this.participants.filter(p => p.id !== 'player').map(p => this.economy.balance(p.id));
+        const buyIntent = AITeamCoordinator.classifyBuy(botBalances);
+        if (buyIntent !== 'eco') {
+            for (const bot of [...attackers, ...defenders]) { bot.armor = 100; this.economy.purchase(bot.name, buyIntent === 'full-buy' ? 3750 : 1650); }
+        }
+        this.hud.showMoney(this.economy.balance('player'));
+        this.hud.showObjectiveStatus(this.bombCarrier ? `Protect the bomb sites · Carrier: ${this.objectiveActorId(this.bombCarrier)}` : 'Bomb Defusal');
     }
 
-    private getSafeSpawnPosition(spawns: THREE.Vector3[], applyJitter: boolean = false): THREE.Vector3 {
-        // Fallback checks
-        if (!spawns || spawns.length === 0) return new THREE.Vector3(0, 10, 0);
+    private objectiveActorId(actor: GameObject): string { return actor === this.game.player ? 'player' : actor instanceof Enemy ? actor.name : `entity-${actor.body?.id ?? 0}`; }
 
-        // Try to find a spawn point that doesn't collide with existing bodies AND is on NavMesh
-        // Shuffle spawns to randomize
-        const shuffled = [...spawns].sort(() => Math.random() - 0.5);
+    private actorPosition(actor: GameObject): THREE.Vector3 | null { return actor.body ? new THREE.Vector3(actor.body.position.x, actor.body.position.y, actor.body.position.z) : null; }
 
-        for (const spawn of shuffled) {
-            let candidate = spawn.clone();
-
-            // Apply Jitter if requested
-            if (applyJitter) {
-                // Jitter up to 2.5m radius
-                const angle = Math.random() * Math.PI * 2;
-                const dist = Math.random() * 2.5;
-                candidate.x += Math.sin(angle) * dist;
-                candidate.z += Math.cos(angle) * dist;
+    private updateBombObjective(dt: number): boolean {
+        if (!this.bomb) return false;
+        const sites = this.game.gameplayMapData.bombSites;
+        const carrierHealth = this.bombCarrier === this.game.player ? this.game.player.health : this.bombCarrier instanceof Enemy ? this.bombCarrier.health : 0;
+        if (this.bombCarrier?.body && carrierHealth > 0) {
+            const pos = this.actorPosition(this.bombCarrier)!;
+            const site = sites.find(s => s.contains(pos));
+            const interacting = this.bombCarrier === this.game.player ? this.game.input.getKey('KeyE') : !!site;
+            if (this.bomb.updatePlant({ id: this.objectiveActorId(this.bombCarrier), team: 'OpFor', position: pos, alive: true }, site?.id ?? null, interacting, dt)) {
+                this.roundPhase = RoundPhase.PostPlant;
+                this.roundTimer = DEFAULT_MATCH_RULES.bombTime;
+                this.hud.showObjectiveStatus(`Bomb planted at ${this.bomb.plantedSite}`, true);
+                for (const defender of this.taskForceAlive) if (defender instanceof Enemy) { defender.ai.blackboard.objectiveDestination = this.bomb.position.clone(); defender.ai.blackboard.objectiveRole = 'retake'; }
+            } else if (this.bomb.state === ObjectiveState.Planting) {
+                this.hud.showInteractionProgress('PLANTING', this.bomb.interactionProgress / DEFAULT_MATCH_RULES.plantTime);
             }
-
-            // 1. Snap to NavMesh (CRITICAL FIX)
-            // Even if we don't jitter, the map spawn point might be slightly off.
-            // If we did jitter, we definitely need to snap back to valid floor.
-            if (this.game.recastNav) {
-                const snapped = this.game.recastNav.closestPointTo(candidate);
-                if (snapped) {
-                    candidate = snapped;
-                } else {
-                    // If jitter pushed it off mesh entirely, skip this attempt
-                    if (applyJitter) continue;
-                }
-            }
-
-            // 2. Simple overlap check
-            // Check if any body is within 1.0m of spawn
-            let blocked = false;
-            for (const body of this.game.world.bodies) {
-                const dist = body.position.distanceTo(new CANNON.Vec3(candidate.x, candidate.y, candidate.z));
-                if (dist < 1.0) { // 1m radius
-                    blocked = true;
-                    break;
-                }
-            }
-
-            if (!blocked) {
-                return candidate;
-            }
+        } else if (this.bombCarrier?.body && this.bomb.state === ObjectiveState.Carried) {
+            this.bomb.drop(this.actorPosition(this.bombCarrier)!);
+            this.bombCarrier = null;
+            this.hud.showObjectiveStatus('Bomb dropped', true);
         }
 
-        // If all blocked, fallback to first random but ensure it's on NavMesh
-        console.warn("All spawn points blocked! Picking best available.");
-
-        // Try to find ANY valid point in the list, ignoring entity collision
-        for (const spawn of shuffled) {
-            if (this.game.recastNav) {
-                const snapped = this.game.recastNav.closestPointTo(spawn);
-                if (snapped) return snapped;
-            }
+        if (this.bomb.state === ObjectiveState.Dropped) {
+            const recoverer = [...this.opForAlive].find(go => {
+                const pos = this.actorPosition(go); return pos && pos.distanceTo(this.bomb!.position) <= 2 && (go !== this.game.player || this.game.input.getKey('KeyE'));
+            });
+            const pos = recoverer ? this.actorPosition(recoverer) : null;
+            if (recoverer && pos && this.bomb.pickup({ id: this.objectiveActorId(recoverer), team: 'OpFor', position: pos, alive: true })) { this.bombCarrier = recoverer; this.hud.showObjectiveStatus(`Bomb recovered by ${this.objectiveActorId(recoverer)}`); }
         }
 
-        // Absolute fallback
-        return shuffled[0].clone();
+        if (this.bomb.state === ObjectiveState.Planted || this.bomb.state === ObjectiveState.Defusing) {
+            const defuser = [...this.taskForceAlive].find(go => { const pos = this.actorPosition(go); const alive = go === this.game.player ? this.game.player.health > 0 : go instanceof Enemy && go.health > 0; return !!pos && alive && pos.distanceTo(this.bomb!.position) <= 2; });
+            if (defuser) {
+                const pos = this.actorPosition(defuser)!; const kit = defuser === this.game.player ? this.game.player.hasDefuseKit : (defuser as Enemy & { hasDefuseKit?: boolean }).hasDefuseKit;
+                const actor = { id: this.objectiveActorId(defuser), team: 'TaskForce' as const, position: pos, alive: true, hasDefuseKit: kit };
+                const interacting = defuser === this.game.player ? this.game.input.getKey('KeyE') : true;
+                if (this.bomb.canActorFinishDefuse(actor)) {
+                    if (this.bomb.updateDefuse(actor, interacting, dt)) { this.hud.hideInteractionProgress(); this.endRound('TaskForce', 'Bomb defused'); return true; }
+                    if (this.bomb.state === ObjectiveState.Defusing) this.hud.showInteractionProgress('DEFUSING', this.bomb.interactionProgress / (kit ? DEFAULT_MATCH_RULES.defuseKitTime : DEFAULT_MATCH_RULES.defuseTime));
+                }
+            }
+            if (this.bomb.update(dt)) { this.endRound('OpFor', 'Bomb exploded'); return true; }
+            this.roundTimer = this.bomb.timeRemaining;
+        }
+        return false;
+    }
+
+    public getSpawnPosition(team: string, applyJitter: boolean = false): THREE.Vector3 | null {
+        return getTeamSpawnPosition(this.game, team, applyJitter);
     }
 
     public checkWinCondition(): string | null {
@@ -410,8 +485,9 @@ export class TeamDeathmatchGameMode extends GameMode {
         }
     }
 
-    private endRound(winner: string | null): void {
+    private endRound(winner: string | null, reason?: string): void {
         this.roundActive = false;
+        this.roundPhase = RoundPhase.RoundEnd;
         this.roundEndTimer = 0;
 
         // Save scores before cleanup
@@ -419,23 +495,37 @@ export class TeamDeathmatchGameMode extends GameMode {
 
         if (winner) {
             this.roundWins[winner]++;
+            if (this.objectiveMode) {
+                if (winner === this.playerSide) this.playerMatchWins++;
+                else this.opponentMatchWins++;
+            }
             console.log(`\n=== ROUND ${this.roundNumber} - ${winner} WINS ===`);
-            (this.game.hudManager as any).showRoundResult(winner, `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
+            this.hud.showRoundResult(winner, reason ?? `Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
 
             const winText = winner === 'TaskForce' ? "Task Force Wins" : "Opposing Force Wins";
             this.game.soundManager.playAnnouncer(winText);
         } else {
             console.log(`\n=== ROUND ${this.roundNumber} - DRAW ===`);
-            (this.game.hudManager as any).showRoundResult(null, "No survivors");
+            this.hud.showRoundResult(null, "No survivors");
             this.game.soundManager.playAnnouncer("Round Draw");
         }
 
         console.log(`Score: TaskForce ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']} OpFor`);
 
+        if (this.objectiveMode) {
+            const teams = new Map<string, 'TaskForce' | 'OpFor'>(this.participants.map(p => [p.id, p.team as 'TaskForce' | 'OpFor']));
+            this.economy.settleRound({ winner: winner as 'TaskForce' | 'OpFor' | null, reason: winner ? 'elimination' : 'draw' }, teams, this.bomb?.plantedSite !== null);
+            this.hud.showMoney(this.economy.balance('player'));
+        }
+
         // Check for game win
-        if (this.roundWins['TaskForce'] >= this.roundLimit) {
+        if (this.objectiveMode && this.playerMatchWins >= this.roundLimit) {
+            this.endGame(this.playerSide);
+        } else if (this.objectiveMode && this.opponentMatchWins >= this.roundLimit) {
+            this.endGame(this.playerSide === 'TaskForce' ? 'OpFor' : 'TaskForce');
+        } else if (!this.objectiveMode && this.roundWins['TaskForce'] >= this.roundLimit) {
             this.endGame('TaskForce');
-        } else if (this.roundWins['OpFor'] >= this.roundLimit) {
+        } else if (!this.objectiveMode && this.roundWins['OpFor'] >= this.roundLimit) {
             this.endGame('OpFor');
         }
 
@@ -476,9 +566,7 @@ export class TeamDeathmatchGameMode extends GameMode {
 
     public onRoundCleanup(): void {
         // Remove all enemy objects
-        const toRemove = this.game.getGameObjects().filter(go =>
-            go instanceof Enemy || go.constructor.name === 'Enemy'
-        );
+        const toRemove = this.game.getGameObjects().filter((go) => go instanceof Enemy);
 
         toRemove.forEach(go => {
             if ('dispose' in go && typeof (go as any).dispose === 'function') {
@@ -495,10 +583,23 @@ export class TeamDeathmatchGameMode extends GameMode {
 
     private endGame(winner: string): void {
         this.isGameOver = true;
+        this.roundPhase = RoundPhase.MatchEnd;
         console.log(`\n========================================`);
         console.log(`     ${winner} WINS THE GAME!`);
         console.log(`     Final Score: ${this.roundWins['TaskForce']} - ${this.roundWins['OpFor']}`);
         console.log(`========================================`);
+
+        if (this.objectiveMode) {
+            const campaign = new CampaignService();
+            const profile = campaign.load();
+            const match = DEFUSAL_TOUR.find(item => item.map === this.game.currentMapName);
+            if (match) {
+                const playerWon = this.playerMatchWins > this.opponentMatchWins;
+                const next = campaign.recordMatch(profile, match.id, playerWon, this.playerMatchWins, this.opponentMatchWins);
+                const nextMatch = DEFUSAL_TOUR.find(item => next.unlockedMatchIds.includes(item.id) && !next.completedMatchIds.includes(item.id));
+                this.hud.showCampaignResult(playerWon ? 'Operation Complete' : 'Operation Failed', nextMatch?.displayName);
+            }
+        }
 
         // Simple game over for now
         setTimeout(() => {
@@ -631,17 +732,12 @@ export class TeamDeathmatchGameMode extends GameMode {
     }
 
     public canPlayerMove(): boolean {
-        // Allow movement only if round is active (and not just starting/counting down)
-        // If countdown is active, block.
-        // If round is not active (between rounds), block.
-        // Grace period: Allow movement if countdown is basically done (< 0.5s).
-        // This prevents the "stuck" feeling if there's a frame delay between visual 0 and logic unlock.
-        if (this.countdownActive && this.countdownTimer > 0.5) return false;
+        if (this.isSpectating) return false;
 
-        // Also block if we haven't started round 1 yet (startup)
-        if (this.roundNumber === 0 && !this.roundActive) return false;
+        // Block during countdown except for a short grace window at GO
+        if (this.countdownActive) return this.countdownTimer <= 0.5;
 
-        // Otherwise allow (during active round)
-        return true;
+        // Only allow movement while a round is actively in progress
+        return this.roundActive;
     }
 }

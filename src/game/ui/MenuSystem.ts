@@ -1,10 +1,15 @@
 import { Game } from '../../engine/Game';
 import { SettingsManager } from '../SettingsManager';
 import { TeamDeathmatchGameMode } from '../gamemodes/TeamDeathmatchGameMode';
-import { FreeForAllGameMode } from '../gamemodes/FreeForAllGameMode';
-import { RLTrainingGameMode } from '../gamemodes/RLTrainingGameMode';
-import { MOBAGameMode } from '../gamemodes/MOBAGameMode';
-import { MallowMightGameMode } from '../gamemodes/MallowMightGameMode';
+import {
+    createGameMode,
+    createRLTrainingMode,
+} from '../gamemodes/registerBuiltinGameModes';
+import { isGameModeId } from '../gamemodes/GameModeRegistry';
+import { GameModeId } from '../gamemodes/GameModeId';
+import { AVAILABLE_MAPS, PROCEDURAL_MAP_NAMES } from '../../config/maps';
+import type { LevelGenerator } from '../LevelGenerator';
+import { CampaignService } from '../campaign/CampaignService';
 // @ts-ignore
 import menuHtml from './main_menu.html?raw';
 // @ts-ignore
@@ -21,16 +26,8 @@ export class MenuSystem {
     private isGameStarted: boolean = false;
     private preloadedModelFile: File | null = null;
 
-    private availableMaps = [
-        'de_dust2_d',
-        'de_train_d',
-        'de_chateau_d',
-        'cs_office_d',
-        'cs_italy_d',
-        'de_inferno_d',
-        'generated_test',
-        'window_test'
-    ];
+    private availableMaps = [...AVAILABLE_MAPS];
+    private campaign = new CampaignService();
 
     constructor(game: Game, settingsManager: SettingsManager) {
         this.game = game;
@@ -51,9 +48,21 @@ export class MenuSystem {
         this.initEvents();
         this.initSettingsUI();
         this.initMapList();
+        this.initCampaignUI();
 
         // Start visible
         this.show();
+    }
+
+    private initCampaignUI(): void {
+        const profile = this.campaign.load();
+        const team = document.getElementById('campaign-team') as HTMLSelectElement;
+        const difficulty = document.getElementById('campaign-difficulty') as HTMLSelectElement;
+        team.value = profile.selectedTeam; difficulty.value = profile.difficulty;
+        this.game.campaignTeam = profile.selectedTeam; this.game.campaignDifficulty = profile.difficulty;
+        const save = () => { const next = this.campaign.load(); next.selectedTeam = team.value as typeof next.selectedTeam; next.difficulty = difficulty.value as typeof next.difficulty; this.campaign.save(next); this.game.campaignTeam = next.selectedTeam; this.game.campaignDifficulty = next.difficulty; };
+        team.addEventListener('change', save); difficulty.addEventListener('change', save);
+        const progress = document.getElementById('campaign-progress'); if (progress) progress.textContent = `${profile.completedMatchIds.length}/4 operations complete`;
     }
 
     private initEvents() {
@@ -98,15 +107,6 @@ export class MenuSystem {
         // Game Mode Toggle - Show/hide RL training options
         const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
         
-        // Inject Mallow Might Option
-        if (modeSelect) {
-            const opt = document.createElement('option');
-            opt.value = 'allow'; // typo check: 'mallow'
-            opt.value = 'mallow';
-            opt.textContent = 'Mallow Might (Physics)';
-            modeSelect.appendChild(opt);
-        }
-        
         modeSelect?.addEventListener('change', () => {
             this.updateModeOptions(modeSelect.value);
         });
@@ -129,8 +129,8 @@ export class MenuSystem {
                 this.preloadedModelFile = modelFileInput.files[0];
                 const statusEl = document.getElementById('rl-model-status');
                 if (statusEl) {
-                    statusEl.textContent = `✅ Model loaded: ${this.preloadedModelFile.name}`;
-                    statusEl.style.color = '#4ade80';
+                    statusEl.textContent = `Model loaded: ${this.preloadedModelFile.name}`;
+                    statusEl.style.color = 'var(--c1-glow)';
                 }
             }
         });
@@ -141,6 +141,8 @@ export class MenuSystem {
         const rlTrainingOptions = document.getElementById('rl-training-options');
         const mapGrid = document.getElementById('map-grid-container');
         const mapGridParent = mapGrid?.parentElement;
+        const campaignOptions = document.getElementById('campaign-options');
+        if (campaignOptions) campaignOptions.style.display = mode === GameModeId.DEFUSAL ? 'block' : 'none';
 
         if (mode === 'rl-training') {
             // Hide spectator, show RL training options
@@ -153,39 +155,6 @@ export class MenuSystem {
             if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
             if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
             if (mapGrid) mapGrid.style.display = 'none';
-        } else if (mode === 'mallow') {
-            // Hide spectator, hide map (Mallow has own map)
-            if (spectatorOptions) spectatorOptions.style.display = 'none';
-            if (rlTrainingOptions) rlTrainingOptions.style.display = 'none';
-            if (mapGrid) mapGrid.style.display = 'none';
-            
-             // Show info logic similar to MOBA?
-             // Reuse MOBA info box or create new one
-             let mallowInfo = document.getElementById('mallow-info');
-             if (!mallowInfo && mapGridParent) {
-                 mallowInfo = document.createElement('div');
-                 mallowInfo.id = 'mallow-info';
-                 mallowInfo.style.cssText = 'padding: 20px; text-align: center; color: #f472b6; background: rgba(236, 72, 153, 0.1); border: 1px solid #ec4899; border-radius: 8px; margin-top: 20px;';
-                 mallowInfo.innerHTML = `
-                    <h3 style="color: #f472b6; margin: 0 0 10px 0;">🌸 Mallow Might</h3>
-                    <p style="margin: 0 0 15px 0; font-size: 16px;">Physics-based auto-battler with roguelike elements.</p>
-                    <button id="mallow-start-btn" class="menu-btn" style="padding: 12px 24px; font-size: 16px; background: #db2777; border-color: #ec4899;">
-                        Start Adventure
-                    </button>
-                 `;
-                 mapGridParent.insertBefore(mallowInfo, mapGrid);
-                 
-                 document.getElementById('mallow-start-btn')?.addEventListener('click', () => {
-                     this.loadMap('mallow');
-                 });
-             } else if (mallowInfo) {
-                 mallowInfo.style.display = 'block';
-             }
-             
-             // Hide others
-            const mobaInfo = document.getElementById('moba-info');
-            if (mobaInfo) mobaInfo.style.display = 'none';
-            
         } else if (mode === 'moba') {
             
             // Show MOBA info message with start button
@@ -193,13 +162,11 @@ export class MenuSystem {
             if (!mobaInfo && mapGridParent) {
                 mobaInfo = document.createElement('div');
                 mobaInfo.id = 'moba-info';
-                mobaInfo.style.cssText = 'padding: 20px; text-align: center; color: #a5b4fc; background: rgba(99, 102, 241, 0.1); border: 1px solid #6366f1; border-radius: 8px; margin-top: 20px;';
+                mobaInfo.className = 'mode-card mode-card--moba';
                 mobaInfo.innerHTML = `
-                    <h3 style="color: #a5b4fc; margin: 0 0 10px 0;">⚔️ MOBA Mode</h3>
-                    <p style="margin: 0 0 15px 0; font-size: 16px;">This mode uses a procedurally generated 3-lane map.</p>
-                    <button id="moba-start-btn" class="menu-btn" style="padding: 12px 24px; font-size: 16px; background: #4f46e5; border-color: #6366f1;">
-                        Start MOBA Game
-                    </button>
+                    <h3 class="mode-card__title">MOBA Assault</h3>
+                    <p class="mode-card__desc">Procedurally generated 3-lane battlefield. Destroy the enemy nexus.</p>
+                    <button id="moba-start-btn" class="menu-btn menu-btn--primary">Deploy</button>
                 `;
                 mapGridParent.insertBefore(mobaInfo, mapGrid);
                 
@@ -220,8 +187,6 @@ export class MenuSystem {
             // Hide MOBA info if it exists
             const mobaInfo = document.getElementById('moba-info');
             if (mobaInfo) mobaInfo.style.display = 'none';
-            const mallowInfo = document.getElementById('mallow-info');
-            if (mallowInfo) mallowInfo.style.display = 'none';
         }
     }
 
@@ -239,8 +204,9 @@ export class MenuSystem {
             this.overlay.style.display = 'block';
             this.isVisible = true;
             this.game.isPaused = true;
-            this.game.setMenuMode(true); // Optimize
+            this.game.setMenuMode(true);
             this.game.input.unlockCursor();
+            this.game.input.clearInputState();
 
             // Update Resume button visibility
             const resumeBtn = document.getElementById('btn-resume');
@@ -255,7 +221,7 @@ export class MenuSystem {
             this.isVisible = false;
             this.game.isPaused = false;
             this.game.setMenuMode(false); // Restore
-            this.game.input.lockCursor();
+            void this.game.input.lockCursor();
             this.isGameStarted = true;
         }
     }
@@ -322,7 +288,7 @@ export class MenuSystem {
             card.className = 'map-card';
             card.innerHTML = `
                 <div class="map-preview">
-                    <span>${map}</span>
+                    <span class="map-meta">${map}</span>
                 </div>
                 <div class="map-info">
                     <div class="map-name">${this.formatMapName(map)}</div>
@@ -340,14 +306,13 @@ export class MenuSystem {
 
         // Add Map Builder Card
         const mbCard = document.createElement('div');
-        mbCard.className = 'map-card';
-        mbCard.style.border = '1px dashed #4ade80';
+        mbCard.className = 'map-card map-card--builder';
         mbCard.innerHTML = `
-            <div class="map-preview" style="background: rgba(74, 222, 128, 0.1); color: #4ade80;">
-                <span style="font-size: 24px;">🛠️</span>
+            <div class="map-preview map-preview--builder">
+                <span>+</span>
             </div>
             <div class="map-info">
-                <div class="map-name" style="color: #4ade80;">Map Builder</div>
+                <div class="map-name map-name--accent">Map Builder</div>
             </div>
         `;
         mbCard.addEventListener('click', () => {
@@ -369,37 +334,31 @@ export class MenuSystem {
     private async loadMap(mapName: string) {
         console.log(`Loading map: ${mapName}`);
 
-        if ((this.game as any).levelGenerator) {
-            // Determine Game Mode
+        if (this.game.levelGenerator) {
             const modeSelect = document.getElementById('gamemode-select') as HTMLSelectElement;
-            const modeValue = modeSelect ? modeSelect.value : 'tdm';
+            const modeValue = modeSelect ? modeSelect.value : GameModeId.TDM;
 
             console.log(`Selected Game Mode: ${modeValue}`);
             
-            // For MOBA mode, skip map selection requirement
-            if (modeValue === 'moba') {
-                mapName = 'moba'; // Use special map name for MOBA
+            if (modeValue === GameModeId.MOBA) {
+                mapName = PROCEDURAL_MAP_NAMES.MOBA;
             }
 
-            // Cleanup previous Game Mode
             if (this.game.gameMode) {
                 this.game.gameMode.dispose();
             }
 
-            // Switch Game Mode
-            if (modeValue === 'rl-training') {
-                // RL Training Mode
+            if (modeValue === GameModeId.RL_TRAINING) {
                 const botsPerTeam = parseInt((document.getElementById('rl-bots-per-team') as HTMLInputElement)?.value || '3');
                 const roundDuration = parseInt((document.getElementById('rl-round-duration') as HTMLInputElement)?.value || '30');
 
-                const rlMode = new RLTrainingGameMode(this.game, {
+                const rlMode = await createRLTrainingMode(this.game, {
                     botsPerTeam,
-                    roundDurationSeconds: roundDuration
+                    roundDurationSeconds: roundDuration,
                 });
 
                 this.game.gameMode = rlMode;
 
-                // Load pre-selected model if any
                 if (this.preloadedModelFile) {
                     rlMode.loadModelFromFile(this.preloadedModelFile).then(success => {
                         if (success) {
@@ -407,30 +366,24 @@ export class MenuSystem {
                         }
                     });
                 }
-            } else if (modeValue === 'ffa') {
-                this.game.gameMode = new FreeForAllGameMode(this.game);
-            } else if (modeValue === 'moba') {
-                this.game.gameMode = new MOBAGameMode(this.game);
-            } else if (modeValue === 'mallow') {
-                this.game.gameMode = new MallowMightGameMode(this.game);
-            } else {
-                // Default to TDM
-                this.game.gameMode = new TeamDeathmatchGameMode(this.game);
+            } else if (isGameModeId(modeValue)) {
+                this.game.gameMode = createGameMode(this.game, modeValue);
 
-                // Check Spectator Option
-                const spectateCheckbox = document.getElementById('checkbox-spectator') as HTMLInputElement;
-                if (spectateCheckbox && spectateCheckbox.checked) {
-                    (this.game.gameMode as TeamDeathmatchGameMode).isSpectatorOnly = true;
+                if (modeValue === GameModeId.TDM) {
+                    const spectateCheckbox = document.getElementById('checkbox-spectator') as HTMLInputElement;
+                    if (spectateCheckbox?.checked) {
+                        (this.game.gameMode as TeamDeathmatchGameMode).isSpectatorOnly = true;
+                    }
                 }
+            } else {
+                this.game.gameMode = createGameMode(this.game, GameModeId.TDM);
             }
 
             // Show loading
             this.showLoading();
 
-            const lg = (this.game as any).levelGenerator;
-            
-            // For MOBA mode, use a special map name
-            const actualMapName = modeValue === 'moba' ? 'moba' : mapName;
+            const lg = this.game.levelGenerator;
+            const actualMapName = modeValue === GameModeId.MOBA ? PROCEDURAL_MAP_NAMES.MOBA : mapName;
             await lg.loadMap(actualMapName);
 
             // Initialize the new game mode (reset rounds, spawn logic, etc)
@@ -446,26 +399,12 @@ export class MenuSystem {
     private showLoading() {
         const loadingScreen = document.createElement('div');
         loadingScreen.id = 'loading-screen';
-        Object.assign(loadingScreen.style, {
-            position: 'absolute',
-            top: '0',
-            left: '0',
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.9)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            color: 'white',
-            fontSize: '32px',
-            zIndex: '2000'
-        });
-        loadingScreen.textContent = 'LOADING...';
+        loadingScreen.className = 'c1-loading-screen';
+        loadingScreen.innerHTML = '<span class="c1-loading-text">Loading</span>';
         this.container.appendChild(loadingScreen);
     }
 
     private showReadyToStart() {
-        // Find or create loading screen
         let loadingScreen = document.getElementById('loading-screen');
         if (!loadingScreen) {
             this.showLoading();
@@ -475,23 +414,8 @@ export class MenuSystem {
         loadingScreen.innerHTML = '';
 
         const btn = document.createElement('button');
-        btn.textContent = 'CLICK TO DEPLOY';
-        Object.assign(btn.style, {
-            padding: '20px 40px',
-            fontSize: '24px',
-            background: '#22c55e',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            textTransform: 'uppercase',
-            boxShadow: '0 0 20px rgba(34, 197, 94, 0.5)'
-        });
-
-        btn.addEventListener('mouseenter', () => btn.style.transform = 'scale(1.05)');
-        btn.addEventListener('mouseleave', () => btn.style.transform = 'scale(1)');
-        btn.style.transition = 'transform 0.2s';
+        btn.textContent = 'Deploy';
+        btn.className = 'c1-deploy-btn';
 
         btn.addEventListener('click', () => {
             // Remove loading screen
@@ -506,7 +430,7 @@ export class MenuSystem {
     }
 
     // Set level generator reference
-    public setLevelGenerator(lg: any) {
-        (this.game as any).levelGenerator = lg;
+    public setLevelGenerator(lg: LevelGenerator) {
+        this.game.levelGenerator = lg;
     }
 }

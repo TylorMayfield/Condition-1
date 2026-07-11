@@ -24,6 +24,7 @@ export class SoundManager {
     private audioLoader: THREE.AudioLoader | null = null;
     private globalAudio: THREE.Audio | null = null;
     private audioCache: Map<string, AudioBuffer> = new Map();
+    private currentAnnouncerPath: string | null = null;
 
     constructor() {
         // Audio context will be created on first user interaction
@@ -170,31 +171,37 @@ export class SoundManager {
         // Check cache
         if (this.audioCache.has(path)) {
             const buffer = this.audioCache.get(path)!;
-            this.playSoundBuffer(buffer, volume);
+            this.playSoundBuffer(buffer, volume, path);
             return;
         }
 
         // Load file
         this.audioLoader.load(path, (buffer) => {
             this.audioCache.set(path, buffer);
-            this.playSoundBuffer(buffer, volume);
+            this.playSoundBuffer(buffer, volume, path);
         }, undefined, (err) => {
             console.warn(`[SoundManager] Failed to load sound: ${path}`, err);
         });
     }
 
-    private playSoundBuffer(buffer: AudioBuffer, volume: number) {
+    private playSoundBuffer(buffer: AudioBuffer, volume: number, path?: string) {
         if (!this.globalAudio) return;
 
-        // Stop if playing to avoid overlapping same channel (optional, but good for announcer)
+        // Don't restart the same announcer clip while it's still playing
+        if (path && path === this.currentAnnouncerPath && this.globalAudio.isPlaying) {
+            return;
+        }
+
         if (this.globalAudio.isPlaying) {
             this.globalAudio.stop();
         }
 
         this.globalAudio.setBuffer(buffer);
-        this.globalAudio.setVolume(volume * this.masterVolume); // Use master volume
+        this.globalAudio.setVolume(volume * this.masterVolume);
         this.globalAudio.setLoop(false);
         this.globalAudio.play();
+
+        this.currentAnnouncerPath = path ?? null;
     }
 
     // === Sound Generation (Procedural) ===

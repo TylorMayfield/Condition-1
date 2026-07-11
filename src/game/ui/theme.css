@@ -1,0 +1,43 @@
+/* Condition-1 — Battlefield Glow Design System */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+    /* Core palette */
+    --c1-bg-deep: #070b0f;
+    --c1-bg-panel: rgba(6, 12, 16, 0.78);
+    --c1-bg-glass: rgba(10, 18, 24, 0.55);
+
+    --c1-glow: #3dd6c8;
+    --c1-glow-dim: rgba(61, 214, 200, 0.22);
+    --c1-glow-soft: rgba(61, 214, 200, 0.08);
+    --c1-glow-strong: rgba(61, 214, 200, 0.55);
+
+    --c1-amber: #f0b429;
+    --c1-amber-dim: rgba(240, 180, 41, 0.35);
+
+    --c1-blue: #4da6ff;
+    --c1-blue-dim: rgba(77, 166, 255, 0.25);
+
+    --c1-red: #ff5c5c;
+    --c1-red-dim: rgba(255, 92, 92, 0.3);
+
+    --c1-magenta: #e879a8;
+    --c1-magenta-dim: rgba(232, 121, 168, 0.2);
+
+    --c1-text: rgba(236, 244, 248, 0.94);
+    --c1-text-muted: rgba(160, 180, 190, 0.62);
+    --c1-text-dim: rgba(120, 140, 150, 0.45);
+
+    --c1-border: rgba(61, 214, 200, 0.18);
+    --c1-border-strong: rgba(61, 214, 200, 0.42);
+
+    --c1-radius-sm: 4px;
+    --c1-radius: 8px;
+    --c1-radius-lg: 12px;
+
+    --c1-font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    --c1-font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+
+    --c1-shadow-glow: 0 0 24px rgba(61, 214, 200, 0.12), 0 0 48px rgba(61, 214, 200, 0.04);
+    --c1-shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}

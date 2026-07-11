@@ -56,6 +56,23 @@ export class AIBlackboard {
     /** Time since we last ATTEMPTED to find cover (prevents thrashing) */
     public timeSinceLastCoverAttempt: number = Infinity;
 
+    // === Target acquisition (human reaction time) ===
+    public pendingTarget: unknown | null = null;
+    public acquisitionTimeRemaining: number = 0;
+
+    // === Tactical action cooldowns (seconds) ===
+    public flankCooldown: number = 0;
+    public coverCooldown: number = 0;
+    public strafeCooldown: number = 0;
+    public peekCooldown: number = 0;
+    public grenadeCooldown: number = 0;
+
+    /** Cadence for expensive tactical choices. */
+    public tacticalDecisionCooldown: number = 0;
+
+    /** Prevent rapid target switching unless a threat is materially better. */
+    public targetCommitmentRemaining: number = 0;
+
     // === State Tracking ===
     /** How long we've been in current state */
     public stateTime: number = 0;
@@ -72,6 +89,8 @@ export class AIBlackboard {
 
     /** Formation offset from leader */
     public formationOffset: THREE.Vector3 | null = null;
+    public objectiveDestination: THREE.Vector3 | null = null;
+    public objectiveRole: 'carrier' | 'entry' | 'support' | 'lurk' | 'anchor' | 'rotator' | 'retake' | null = null;
 
     /**
      * Update time-based values
@@ -87,6 +106,18 @@ export class AIBlackboard {
         this.recentTransitions = Math.max(0, this.recentTransitions - dt * 0.5);
 
         this.timeSinceLastCoverAttempt += dt;
+
+        this.flankCooldown = Math.max(0, this.flankCooldown - dt);
+        this.coverCooldown = Math.max(0, this.coverCooldown - dt);
+        this.strafeCooldown = Math.max(0, this.strafeCooldown - dt);
+        this.peekCooldown = Math.max(0, this.peekCooldown - dt);
+        this.grenadeCooldown = Math.max(0, this.grenadeCooldown - dt);
+        this.tacticalDecisionCooldown = Math.max(0, this.tacticalDecisionCooldown - dt);
+        this.targetCommitmentRemaining = Math.max(0, this.targetCommitmentRemaining - dt);
+
+        if (this.acquisitionTimeRemaining > 0) {
+            this.acquisitionTimeRemaining = Math.max(0, this.acquisitionTimeRemaining - dt);
+        }
 
         // Clean old sounds (older than 10 seconds)
         const now = Date.now();
@@ -196,6 +227,89 @@ export class AIBlackboard {
 
     public recordCoverAttempt(): void {
         this.timeSinceLastCoverAttempt = 0;
+        this.markCover();
+    }
+
+    /** Begin confirming a spotted target before engaging. */
+    public beginAcquisition(target: unknown, delaySeconds: number): void {
+        if (this.pendingTarget !== target) {
+            this.pendingTarget = target;
+            this.acquisitionTimeRemaining = delaySeconds;
+        }
+    }
+
+    public isAcquiringTarget(target: unknown): boolean {
+        return this.pendingTarget === target && this.acquisitionTimeRemaining > 0;
+    }
+
+    public hasPendingAcquisition(target: unknown): boolean {
+        return this.pendingTarget === target;
+    }
+
+    public isAcquisitionReady(): boolean {
+        return this.pendingTarget !== null && this.acquisitionTimeRemaining <= 0;
+    }
+
+    public confirmAcquisition(): void {
+        this.pendingTarget = null;
+        this.acquisitionTimeRemaining = 0;
+    }
+
+    public cancelAcquisition(): void {
+        this.pendingTarget = null;
+        this.acquisitionTimeRemaining = 0;
+    }
+
+    public canFlank(): boolean {
+        return this.flankCooldown <= 0;
+    }
+
+    public markFlank(): void {
+        this.flankCooldown = 12 + Math.random() * 10;
+    }
+
+    public canSeekCover(): boolean {
+        return this.coverCooldown <= 0 && this.timeSinceLastCoverAttempt > 3;
+    }
+
+    public markCover(): void {
+        this.coverCooldown = 8 + Math.random() * 6;
+    }
+
+    public canStrafe(): boolean {
+        return this.strafeCooldown <= 0;
+    }
+
+    public markStrafe(): void {
+        this.strafeCooldown = 1.2 + Math.random() * 1.5;
+    }
+
+    public canPeekFire(): boolean {
+        return this.peekCooldown <= 0;
+    }
+
+    public markPeekFire(): void {
+        this.peekCooldown = 1.5 + Math.random() * 2;
+    }
+
+    public canThrowGrenade(): boolean {
+        return this.grenadeCooldown <= 0;
+    }
+
+    public markGrenade(): void {
+        this.grenadeCooldown = 18 + Math.random() * 12;
+    }
+
+    public canMakeTacticalDecision(): boolean {
+        return this.tacticalDecisionCooldown <= 0;
+    }
+
+    public markTacticalDecision(intervalSeconds: number = 0.35): void {
+        this.tacticalDecisionCooldown = intervalSeconds;
+    }
+
+    public commitToTarget(seconds: number = 3): void {
+        this.targetCommitmentRemaining = seconds;
     }
 
     /**
@@ -243,5 +357,16 @@ export class AIBlackboard {
         this.recentTransitions = 0;
         this.assignedTarget = null;
         this.formationOffset = null;
+        this.objectiveDestination = null;
+        this.objectiveRole = null;
+        this.pendingTarget = null;
+        this.acquisitionTimeRemaining = 0;
+        this.flankCooldown = 0;
+        this.coverCooldown = 0;
+        this.strafeCooldown = 0;
+        this.peekCooldown = 0;
+        this.grenadeCooldown = 0;
+        this.tacticalDecisionCooldown = 0;
+        this.targetCommitmentRemaining = 0;
     }
 }

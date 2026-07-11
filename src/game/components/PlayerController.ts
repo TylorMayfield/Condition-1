@@ -114,29 +114,14 @@ export class PlayerController {
             return;
         }
 
-        // Round Start Check
         if (!this.game.gameMode.canPlayerMove()) {
-            // Apply zero velocity to stop any rigid body momentum immediately if needed, 
-            // or just return to let friction take over (but updating velocity to 0 checks input).
-            // If we just return, momentum might carry us.
-            // Better to explicitly damping or just zero out horizontal velocity if ground based.
             if (this.checkGrounded()) {
                 body.velocity.x = 0;
                 body.velocity.z = 0;
             }
-
-            // DEBUG: Why are we frozen?
-            if (Math.random() < 0.01) { // Log infrequently
-                 console.log("Movement Blocked by GameMode.canPlayerMove() == false");
-            }
             return;
         }
 
-        // Mode Input Handling
-        // DEBUG: Trace movement lock
-        if (this.game.input.getAction('MoveForward') || this.game.input.getKey('KeyW')) {
-            // console.log("Attempting MoveForward", { isNoclip: this.isNoclip, canMove: this.game.gameMode.canPlayerMove() });
-        }
         if (this.game.input.getActionDown('Crouch')) {
             const now = performance.now();
             if (now - this.lastCrouchTime < 300) {
@@ -189,19 +174,16 @@ export class PlayerController {
         const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
 
         const velocity = new THREE.Vector3();
-        if (this.game.input.getAction('MoveForward')) velocity.add(forward);
-        if (this.game.input.getAction('MoveBackward')) velocity.sub(forward);
-        if (this.game.input.getAction('MoveRight')) velocity.add(right);
-        if (this.game.input.getAction('MoveLeft')) velocity.sub(right); // Settings says A is Left
+        if (this.isMoveActionActive('MoveForward', 'KeyW')) velocity.add(forward);
+        if (this.isMoveActionActive('MoveBackward', 'KeyS')) velocity.sub(forward);
+        if (this.isMoveActionActive('MoveRight', 'KeyD')) velocity.add(right);
+        if (this.isMoveActionActive('MoveLeft', 'KeyA')) velocity.sub(right);
 
-        // DEBUG: Trace movement inputs
-        // if (this.game.input.getAction('MoveForward')) {
-             // console.log(`[PlayerMovement] Input Active. Locked: ${this.game.input.isPointerLocked} CanMove: ${this.game.gameMode.canPlayerMove()} Velocity: ${velocity.length()}`);
-        // }
+        if (velocity.length() > 0) {
+            body.wakeUp();
+            velocity.normalize().multiplyScalar(currentSpeed);
+        }
 
-        if (velocity.length() > 0) velocity.normalize().multiplyScalar(currentSpeed);
-
-        // Apply X/Z velocity
         body.velocity.x = velocity.x;
         body.velocity.z = velocity.z;
 
@@ -229,6 +211,10 @@ export class PlayerController {
                 body.velocity.y = this.jumpForce;
             }
         }
+    }
+
+    private isMoveActionActive(action: string, fallbackCode: string): boolean {
+        return this.game.input.getAction(action) || this.game.input.getKey(fallbackCode);
     }
 
     private handleNoclipMovement(body: CANNON.Body) {

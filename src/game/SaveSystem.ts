@@ -25,22 +25,25 @@ export class SaveSystem {
     public saveGame(slot: number = 1): boolean {
         try {
             if (!this.game.player || !this.game.player.body) return false;
+            const player = this.game.player;
+            const body = player.body!;
+            const mesh = player.mesh!;
 
             const gameState: GameState = {
                 timestamp: Date.now(),
                 mapName: 'killhouse', // TODO: Get actual current map name from LevelGenerator or Game
                 player: {
                     position: {
-                        x: this.game.player.body.position.x,
-                        y: this.game.player.body.position.y,
-                        z: this.game.player.body.position.z
+                        x: body.position.x,
+                        y: body.position.y,
+                        z: body.position.z
                     },
                     rotation: {
-                        x: this.game.player.mesh.rotation.x,
-                        y: this.game.player.mesh.rotation.y,
-                        z: this.game.player.mesh.rotation.z
+                        x: mesh.rotation.x,
+                        y: mesh.rotation.y,
+                        z: mesh.rotation.z
                     },
-                    health: this.game.player.health,
+                    health: player.health,
                     inventory: {} // TODO: Serialize inventory
                 },
                 worldState: {}

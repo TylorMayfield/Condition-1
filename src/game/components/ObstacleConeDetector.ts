@@ -35,11 +35,10 @@ export class ObstacleConeDetector {
     if (!this.owner.body) return results;
 
     // Owner forward direction (ignoring Y component for horizontal cone)
-    const forward = new THREE.Vector3(this.owner.body.velocity.x, 0, this.owner.body.velocity.z);
-    if (forward.lengthSq() === 0) {
-      // If not moving, use the object's orientation (assume facing -Z)
-      forward.set(0, 0, -1);
-    }
+    const forward = this.owner.mesh
+      ? new THREE.Vector3(0, 0, 1).applyQuaternion(this.owner.mesh.quaternion).setY(0)
+      : new THREE.Vector3(this.owner.body.velocity.x, 0, this.owner.body.velocity.z);
+    if (forward.lengthSq() === 0) forward.set(0, 0, 1);
     forward.normalize();
 
     const halfAngle = THREE.MathUtils.degToRad(coneAngleDeg / 2);

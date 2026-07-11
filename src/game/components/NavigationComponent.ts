@@ -68,6 +68,8 @@ export class NavigationComponent {
 
   /** Called each tick – handles stuck detection and obstacle avoidance. */
   public update(dt: number): void {
+    if (this.owner.ai?.useRecast) return;
+
     if (this.recoveryTimer > 0) {
       this.recoveryTimer -= dt;
       return;

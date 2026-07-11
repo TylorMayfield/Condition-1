@@ -8,8 +8,9 @@ export class AISenses {
     private owner: Enemy;
 
     // Stats
-    public sightRange: number = 20;
-    public fov: number = 0.5; // Dot product
+    public sightRange: number = 30;
+    public fov: number = 0.42; // Deliberate forward vision without tunnel vision.
+    public peripheralFov: number = 0.45; // wider cone for "something moved" checks
 
     constructor(game: Game, owner: Enemy) {
         this.game = game;
@@ -40,23 +41,20 @@ export class AISenses {
         const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion).normalize();
 
         const dot = forward.dot(toTarget);
-        if (dot < this.fov) return false;
+        // Nearby threats are noticed peripherally; distant threats require the view cone.
+        if (dist > 7 && dot < this.fov) return false;
 
         // 3. Line of Sight (Raycast)
         const start = new CANNON.Vec3(body.position.x, body.position.y + 0.5, body.position.z);
         const end = new CANNON.Vec3(targetPos.x, targetPos.y + 0.5, targetPos.z);
 
-        const ray = new CANNON.Ray(start, end);
-        const result = new CANNON.RaycastResult();
-        ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
-
-        if (result.hasHit) {
-            // Check if we hit something other than the target
-            if (result.body && result.body !== targetBody) {
-                return false;
-            }
-        }
-
-        return true;
+        let closestBody: CANNON.Body | null = null;
+        let closestDistance = Infinity;
+        this.game.world.raycastAll(start, end, { skipBackfaces: true }, (result) => {
+            if (!result.body || result.body === body || result.distance >= closestDistance) return;
+            closestDistance = result.distance;
+            closestBody = result.body;
+        });
+        return closestBody === null || closestBody === targetBody;
     }
 }

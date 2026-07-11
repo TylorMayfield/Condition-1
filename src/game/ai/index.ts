@@ -5,6 +5,7 @@ export { AIStateMachine, type IAIStateHandler } from './AIStateMachine';
 export { AICover, type CoverPoint } from './AICover';
 export { AIMovement } from './AIMovement';
 export { AISenses } from './AISenses';
+export { AITeamCoordinator } from './AITeamCoordinator';
 export { RecastNavigation } from './RecastNavigation';
 
 // State Handlers
@@ -20,4 +21,4 @@ export {
     FollowState,
     AdvanceState,
     RetreatState,
-} from './states/AIStates';
+} from './states';

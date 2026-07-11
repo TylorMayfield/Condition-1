@@ -27,6 +27,8 @@ export class Enemy extends GameObject {
     public damageDealt: number = 0; // Track total damage this bot has dealt
     public enemyDamageDealt: number = 0; // Damage dealt to enemies only
     public friendlyDamageDealt: number = 0; // Friendly fire damage
+    public armor: number = 0;
+    public hasDefuseKit: boolean = false;
 
     // Animation State
     public aimWeight: number = 0; // 0 = Relaxed, 1 = Aiming
@@ -137,9 +139,10 @@ export class Enemy extends GameObject {
 
         // Weapon
         this.weapon = new EnemyWeapon(game, this);
-        // Attach to Right Arm
-        this.weapon.mesh.position.set(0, -0.25, 0.15); // Hold in hand (adjusted for new arm size)
-        this.rightArm.add(this.weapon.mesh);
+        // Keep the weapon on the character root. Parenting it to the animated arm
+        // compounded arm and aim rotations, making the rifle twist and point upward.
+        this.weapon.mesh.position.set(0.28, 0.58, 0.32);
+        this.mesh.add(this.weapon.mesh);
 
         // Color based on Team (Priority) or Personality
         if (this.team === 'Player' || this.team === 'TaskForce') {
@@ -184,7 +187,8 @@ export class Enemy extends GameObject {
 
         // Apply multiplier with slight variance (±10%)
         const variance = 0.9 + Math.random() * 0.2;
-        const finalDamage = Math.round(amount * multiplier * variance);
+        let finalDamage = Math.round(amount * multiplier * variance);
+        if (this.armor > 0) { const absorbed = Math.min(this.armor, Math.round(finalDamage * 0.35)); this.armor -= absorbed; finalDamage -= absorbed; }
 
         this.health -= finalDamage;
 
@@ -372,14 +376,13 @@ export class Enemy extends GameObject {
     private isProne: boolean = false;
 
     private animate(dt: number) {
-        this.time += dt * 10; // Animation speed
-
         if (!this.body) return;
 
         // Velocity Check
         const vel = this.body.velocity;
         const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         const isMoving = speed > 0.5;
+        this.time += dt * (4 + Math.min(speed, 4) * 1.8);
 
         // Reset rotations
         this.leftArm.rotation.set(0, 0, 0);
@@ -391,9 +394,12 @@ export class Enemy extends GameObject {
         if (this.mesh) this.mesh.rotation.x = 0; // Ensure base group is upright
 
         // Reset body bob
-        this.bodyMesh.position.y = 0.6;
-        this.head.position.y = 1.25;
-        this.bodyMesh.position.z = 0;
+        this.bodyMesh.position.set(0, 0.6, 0);
+        this.head.position.set(0, 1.25, 0);
+        this.leftArm.position.set(-0.4, 0.55, 0);
+        this.rightArm.position.set(0.4, 0.55, 0);
+        this.leftLeg.position.set(-0.15, -0.05, 0);
+        this.rightLeg.position.set(0.15, -0.05, 0);
 
         if (this.isProne) {
             // Prone Animation
@@ -431,15 +437,16 @@ export class Enemy extends GameObject {
             const cosCycle = Math.cos(this.time);
 
             // Legs swing
-            this.leftLeg.rotation.x = walkCycle * 0.6;
-            this.rightLeg.rotation.x = -walkCycle * 0.6;
+            this.leftLeg.rotation.x = walkCycle * 0.42;
+            this.rightLeg.rotation.x = -walkCycle * 0.42;
 
             // Arms swing (opposite to legs)
-            this.leftArm.rotation.x = -walkCycle * 0.4;
-            this.rightArm.rotation.x = walkCycle * 0.4;
+            this.leftArm.rotation.x = -walkCycle * 0.28;
+            this.rightArm.rotation.x = walkCycle * 0.22;
 
             // Body Bob
-            this.head.position.y = 1.25 + Math.abs(cosCycle) * 0.05;
+            this.head.position.y = 1.25 + Math.abs(cosCycle) * 0.025;
+            this.bodyMesh.position.y = 0.6 + Math.abs(cosCycle) * 0.015;
         }
 
         // Apply Leaning (Upper Body Only)
@@ -475,15 +482,15 @@ export class Enemy extends GameObject {
             // Right arm (Weapon)
             const currentRA_X = this.rightArm.rotation.x;
             // Base aim is -90 deg (forward), plus pitch (look up/down)
-            const targetRA_X = -Math.PI / 2 + this.lookPitch;
+            const targetRA_X = -1.15 + this.lookPitch * 0.7;
             this.rightArm.rotation.x = THREE.MathUtils.lerp(currentRA_X, targetRA_X, this.aimWeight);
 
             this.rightArm.rotation.z = THREE.MathUtils.lerp(0, -0.1, this.aimWeight);
 
             // Left arm (Support)
             const currentLA_X = this.leftArm.rotation.x;
-            this.leftArm.rotation.x = THREE.MathUtils.lerp(currentLA_X, -Math.PI / 2.2, this.aimWeight);
-            this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.3, this.aimWeight);
+            this.leftArm.rotation.x = THREE.MathUtils.lerp(currentLA_X, -1.0, this.aimWeight);
+            this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.18, this.aimWeight);
             this.leftArm.rotation.y = THREE.MathUtils.lerp(this.leftArm.rotation.y, 0.2, this.aimWeight);
 
             // Head looks based on lookPitch
@@ -512,7 +519,7 @@ export class Enemy extends GameObject {
         }
     }
 
-    public fireAtLookDirection() {
+    public fireAtLookDirection(context: import('./components/EnemyWeapon').FireContext = {}) {
         if (!this.weapon || !this.head || !this.mesh) return;
 
         // Calculate aim direction from mesh/head rotation
@@ -531,7 +538,7 @@ export class Enemy extends GameObject {
         const origin = this.head.position.clone().add(this.mesh.position);
         const targetPos = origin.clone().add(dir.multiplyScalar(100)); // 100m away
 
-        this.weapon.pullTrigger(targetPos);
+        this.weapon.pullTrigger(targetPos, context);
     }
 
     private grenadeCooldown: number = 0;

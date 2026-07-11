@@ -19,14 +19,15 @@ export class TextMapLoader {
             const textMapModule = await import(`../maps/${nameWithoutExt}.textmap?raw`);
             const content = textMapModule.default || textMapModule;
 
-            const textMap = TextMapParser.parse(content);
+            const mapData = TextMapParser.parse(content);
+            const textMap = new TextMap(this.game, mapData);
 
             // Setup lighting
             this.setupLighting();
 
             // Render the map
-            const renderer = new TextMapRenderer(this.game.scene, this.game.world);
-            renderer.render(textMap);
+            const renderer = new TextMapRenderer(this.game, textMap);
+            renderer.render();
 
             console.log(`Loaded TextMap: ${fileName}`);
             return textMap;

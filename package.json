@@ -10,24 +10,27 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "electron:dev": "concurrently \"vite\" \"electron .\"",
     "make": "electron-forge make",
-    "validate-maps": "npx tsx scripts/validate-maps.ts",
-    "bake": "npx tsx scripts/bake-navmesh.ts",
-    "bake:all": "npx tsx scripts/bake-navmesh.ts --all",
-    "test:nav": "npx tsx scripts/test-nav.ts",
-    "generate-map": "npx tsx scripts/generate-map.ts",
+    "validate-maps": "tsx scripts/validate-maps.ts",
+    "bake": "tsx scripts/bake-navmesh.ts",
+    "bake:all": "tsx scripts/bake-navmesh.ts --all",
+    "test:nav": "tsx scripts/test-nav.ts",
+    "generate-map": "tsx scripts/generate-map.ts",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0",
-    "@types/node": "^20.0.0",
     "@electron-forge/cli": "^7.10.2",
     "@electron-forge/maker-squirrel": "^7.10.2",
     "@electron-forge/maker-zip": "^7.10.2",
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.0.0",
     "concurrently": "^9.2.1",
     "electron": "^39.2.7",
+    "happy-dom": "^20.9.0",
+    "tsx": "^4.19.2",
     "typescript": "~5.9.3",
     "vite": "^7.3.0"
   },
@@ -41,5 +44,14 @@
     "recast-navigation": "^0.43.0",
     "three": "^0.181.2",
     "vitest": "^4.0.16"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "core-js",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "protobufjs"
+    ]
   }
 }

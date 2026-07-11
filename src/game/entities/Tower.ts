@@ -39,8 +39,8 @@ export class Tower extends GameObject {
         baseMesh.castShadow = true;
         baseMesh.receiveShadow = true;
 
-        this.turretMesh = new THREE.CylinderGeometry(0.8, 1, 2, 8);
-        const turret = new THREE.Mesh(this.turretMesh, mat);
+        const turret = new THREE.Mesh(turretGeo, mat);
+        this.turretMesh = turret;
         turret.position.y = 5;
         turret.castShadow = true;
 
@@ -158,7 +158,7 @@ export class Tower extends GameObject {
 
         // Deal damage to target
         if (this.currentTarget instanceof Enemy) {
-            this.currentTarget.takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this, null);
+            this.currentTarget.takeDamage(this.attackDamage, new THREE.Vector3(0, 0, 0), 0, this);
         } else if (this.currentTarget === this.game.player) {
             // Player damage
             if ((this.currentTarget as any).takeDamage) {
@@ -182,7 +182,7 @@ export class Tower extends GameObject {
         if (!this.mesh) return;
 
         const flashGeo = new THREE.SphereGeometry(0.3, 8, 8);
-        const flashMat = new THREE.MeshBasicMaterial({ color: 0xffff00, emissive: 0xffff00 });
+        const flashMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
         const flash = new THREE.Mesh(flashGeo, flashMat);
         
         // Position at turret top
@@ -218,4 +218,3 @@ export class Tower extends GameObject {
         }
     }
 }
-

@@ -13,6 +13,8 @@ import { AICover } from '../ai/AICover';
 import { AIBlackboard } from '../ai/AIBlackboard';
 import { AIStateMachine } from '../ai/AIStateMachine';
 import { AIStateId, getStateName } from '../ai/AIState';
+import { AIPersonality, type AIPersonality as AIPersonalityType } from '../ai/AIPersonality';
+import { AITeamCoordinator } from '../ai/AITeamCoordinator';
 import {
     IdleState,
     PatrolState,
@@ -25,7 +27,7 @@ import {
     FollowState,
     AdvanceState,
     RetreatState,
-} from '../ai/states/AIStates';
+} from '../ai/states';
 
 // Legacy export for backward compatibility
 export const AIState = {
@@ -42,12 +44,8 @@ export const AIState = {
 } as const;
 export type AIState = (typeof AIState)[keyof typeof AIState];
 
-export const AIPersonality = {
-    Rusher: 0,
-    Sniper: 1,
-    Tactical: 2,
-} as const;
-export type AIPersonality = (typeof AIPersonality)[keyof typeof AIPersonality];
+export { AIPersonality };
+export type { AIPersonalityType };
 
 export class EnemyAI {
     // Core services
@@ -73,7 +71,7 @@ export class EnemyAI {
     }
 
     public target: GameObject | null = null;
-    public personality: AIPersonality;
+    public personality: AIPersonalityType;
 
     // Timers
     public scanTimer: number = 0;
@@ -84,7 +82,10 @@ export class EnemyAI {
     public reactionDelay: number = 0.5;
     public variance: number = Math.random();
     public attackRange: number = 20;
+    public minAttackRange: number = 0;
     public healthThreshold: number = 40;
+    public difficultyAccuracyScale: number = 1;
+    public tacticalDecisionInterval: number = 0.35;
 
     // Legacy state fields
     public alertParams: { pos: THREE.Vector3; timer: number } | null = null;
@@ -99,8 +100,6 @@ export class EnemyAI {
     public useRecast: boolean = false;
 
     private registrationTimeout: any = null;
-    private recoveryTimer: number = 0;
-
     // Performance: Throttle expensive cone detection raycasts
     private coneCheckTimer: number = 0;
     private readonly coneCheckInterval: number = 0.15; // Check every 150ms
@@ -113,7 +112,7 @@ export class EnemyAI {
     public rlPolicy: import('../rl/RLPolicy').IRLPolicy | null = null;
     public useRLPolicy: boolean = false;
 
-    constructor(game: Game, owner: Enemy, personality: AIPersonality) {
+    constructor(game: Game, owner: Enemy, personality: AIPersonalityType) {
         this.game = game;
         this.owner = owner;
         this.personality = personality;
@@ -151,14 +150,25 @@ export class EnemyAI {
 
         // Personality adjustments
         if (personality === AIPersonality.Rusher) {
-            this.attackRange = 10;
-            this.reactionDelay = 0.2;
+            this.attackRange = 14;
+            this.reactionDelay = 0.35;
+            this.senses.config(28, 0.35);
         } else if (personality === AIPersonality.Sniper) {
-            this.attackRange = 40;
-            this.reactionDelay = 0.8;
-            this.healthThreshold = 20;
+            this.attackRange = 38;
+            this.minAttackRange = 16;
+            this.reactionDelay = 0.65;
+            this.healthThreshold = 25;
+            this.senses.config(42, 0.55);
+        } else {
+            this.senses.config(34, 0.42);
+            this.attackRange = 22;
+            this.healthThreshold = 45;
         }
 
+        if (game.campaignDifficulty === 'recruit') { this.reactionDelay += 0.2; this.difficultyAccuracyScale = 1.25; this.tacticalDecisionInterval = 0.55; }
+        else if (game.campaignDifficulty === 'elite') { this.reactionDelay = Math.max(0.2, this.reactionDelay - 0.12); this.difficultyAccuracyScale = 0.8; this.tacticalDecisionInterval = 0.22; }
+
+        this.game.soundManager.registerListener(this);
         this.tryRegisterWithCrowd();
     }
 
@@ -194,6 +204,8 @@ export class EnemyAI {
         if (this.game.recastNav) {
             this.game.recastNav.removeAgent(this.entityId);
         }
+        AITeamCoordinator.releaseAll(this);
+        this.game.soundManager.unregisterListener(this);
     }
 
     public getState(): AIState {
@@ -223,36 +235,35 @@ export class EnemyAI {
         // Update blackboard timers
         this.blackboard.update(dt);
 
-        // Recovery timer (stuck handling) – managed by NavigationComponent
-        if (this.recoveryTimer > 0) {
-            this.recoveryTimer -= dt;
-            return;
+        // Navigation component handles stuck detection (skip when Recast drives movement)
+        if (!this.useRecast) {
+            this.navigationComponent.update(dt);
         }
 
-        // Navigation component handles stuck detection and path updates
-        this.navigationComponent.update(dt);
-
-        // Reaction timer before state changes
-        if (this.reactionTimer > 0) {
+        const reacting = this.reactionTimer > 0;
+        if (reacting) {
             this.reactionTimer -= dt;
-            return;
         }
 
         if (this.pathTimer > 0) this.pathTimer -= dt;
 
-        // Target acquisition
         this.updateTargeting(dt);
 
-        // RL Policy mode: use trained model instead of FSM
-        if (this.useRLPolicy && this.rlPolicy && this.rlPolicy.isLoaded()) {
-            this.executeRLPolicy();
-        } else {
-            // State machine update (traditional FSM)
-            this.stateMachine.update(dt);
+        if (!this.target && this.blackboard.objectiveDestination) {
+            const pos = this.getOwnerPosition();
+            if (pos && pos.distanceTo(this.blackboard.objectiveDestination) > 1.5) {
+                this.movement.moveTo(this.blackboard.objectiveDestination);
+            }
         }
 
-        // Movement and look direction updates
-        // Movement and look direction updates
+        if (!reacting) {
+            if (this.useRLPolicy && this.rlPolicy && this.rlPolicy.isLoaded()) {
+                this.executeRLPolicy();
+            } else {
+                this.stateMachine.update(dt);
+            }
+        }
+
         this.movement.update();
         this.updateLookDirection(dt);
 
@@ -363,48 +374,90 @@ export class EnemyAI {
 
 
 
+    private isPassiveState(): boolean {
+        const state = this.stateMachine.getState();
+        return state === AIStateId.Idle
+            || state === AIStateId.Patrol
+            || state === AIStateId.Search
+            || state === AIStateId.Alert;
+    }
+
+    private getAcquisitionDelay(): number {
+        let delay = this.reactionDelay + Math.random() * 0.2;
+        const dist = this.getDistanceToTarget();
+        if (Number.isFinite(dist)) {
+            delay += Math.min(dist / 50, 0.35);
+        }
+        if (this.stateMachine.getState() === AIStateId.Alert) {
+            delay *= 0.5;
+        }
+        return delay;
+    }
+
+    private processTargetEngagement(): void {
+        if (!this.target || !this.target.body) return;
+        if (!this.senses.canSee(this.target)) return;
+
+        const targetPos = new THREE.Vector3(
+            this.target.body.position.x,
+            this.target.body.position.y,
+            this.target.body.position.z
+        );
+        const velocity = this.target.body.velocity
+            ? new THREE.Vector3(this.target.body.velocity.x, this.target.body.velocity.y, this.target.body.velocity.z)
+            : undefined;
+        this.blackboard.sawTarget(targetPos, velocity);
+
+        if (!this.isPassiveState()) return;
+
+        if (this.blackboard.isAcquisitionReady()) {
+            this.blackboard.confirmAcquisition();
+            this.blackboard.commitToTarget();
+            AITeamCoordinator.reportSighting(this, this.target, targetPos);
+            this.stateMachine.requestTransition(AIStateId.Chase, 'target-acquired');
+            return;
+        }
+
+        if (!this.blackboard.hasPendingAcquisition(this.target)) {
+            this.blackboard.beginAcquisition(this.target, this.getAcquisitionDelay());
+        }
+    }
+
     private updateTargeting(dt: number) {
-        // Performance: Throttle expensive cone detection (3 raycasts per call)
         this.coneCheckTimer += dt;
         const shouldCheckCone = this.coneCheckTimer >= this.coneCheckInterval;
         if (shouldCheckCone) {
             this.coneCheckTimer = 0;
-            // 1. Cone Detection (Short range, "Slice the Pie")
-            // Scan 3 rays, 45 degrees, 15 meters
-            const coneHits = this.coneDetector.castCone(15, 45, 3);
-            if (coneHits.length > 0) {
-                // Process hits to see if we found an enemy
-                for (const result of coneHits) {
-                    if (result.body && (result.body as any).gameObject) {
-                        const go = (result.body as any).gameObject as GameObject;
-                        if (go.team !== this.owner.team && go.team !== 'Neutral') {
-
-                            if (this.senses.canSee(go)) {
-                                // Found target in cone!
-                                this.target = go;
-                                this.scanTimer = 0;
-                                if (this.state === AIState.Idle || this.state === AIState.Patrol || this.state === AIState.Search) {
-                                    // Target spotted via cone scan
-                                    this.stateMachine.requestTransition(AIStateId.Chase, 'cone-spotted');
-                                }
-                                return; // Found one, stop scanning
-                            }
-                        }
+            const coneHits = this.coneDetector.castCone(12, 35, 3);
+            for (const result of coneHits) {
+                if (result.body && (result.body as { gameObject?: GameObject }).gameObject) {
+                    const go = (result.body as unknown as { gameObject: GameObject }).gameObject;
+                    if (go.team !== this.owner.team && go.team !== 'Neutral' && this.senses.canSee(go)) {
+                        this.target = go;
+                        this.scanTimer = 0;
+                        this.processTargetEngagement();
+                        return;
                     }
                 }
             }
         }
 
-        if (!this.target || (this.target as any).health <= 0) {
+        if (!this.target || ((this.target as { health?: number }).health ?? 1) <= 0) {
             this.target = null;
+            this.blackboard.cancelAcquisition();
             this.scanTimer += dt * 1000;
-            if (this.scanTimer > 500 + this.variance * 200) {
+            if (this.scanTimer > 600 + this.variance * 300) {
                 this.findTarget();
                 this.scanTimer = 0;
+                if (this.target) {
+                    this.processTargetEngagement();
+                }
                 if (!this.target && this.owner.team === 'Player' && this.state === AIState.Idle) {
                     this.stateMachine.requestTransition(AIStateId.Patrol, 'no-target-friendly');
                 }
             }
+        } else {
+            this.processTargetEngagement();
         }
     }
 
@@ -417,18 +470,32 @@ export class EnemyAI {
                 targets.push(go);
             }
         }
-        let closestDist = Infinity;
+        let bestScore = -Infinity;
         let bestTarget: GameObject | null = null;
         const myPos = this.owner.body!.position;
         for (const t of targets) {
             if (!t.body) continue;
             const dist = myPos.distanceTo(t.body.position);
-            if (dist < this.senses.sightRange && this.senses.canSee(t) && dist < closestDist) {
-                closestDist = dist;
+            if (dist >= this.senses.sightRange || !this.senses.canSee(t)) continue;
+
+            const health = (t as { health?: number }).health ?? 100;
+            const attackers = AITeamCoordinator.getAttackerCount(this, t);
+            const damagedByThreat = this.blackboard.lastDamageSourcePos
+                ? Math.max(0, 12 - this.blackboard.lastDamageSourcePos.distanceTo(
+                    new THREE.Vector3(t.body.position.x, t.body.position.y, t.body.position.z)
+                ))
+                : 0;
+            const score = 50 - dist + (100 - health) * 0.12 + damagedByThreat - attackers * 8;
+            if (score > bestScore) {
+                bestScore = score;
                 bestTarget = t;
             }
         }
-        this.target = bestTarget;
+        if (bestTarget && (this.target === null || this.blackboard.targetCommitmentRemaining <= 0)) {
+            AITeamCoordinator.assignTarget(this, bestTarget);
+            this.target = bestTarget;
+            this.blackboard.commitToTarget(2.5 + Math.random() * 1.5);
+        }
     }
 
     public getDistanceToTarget(): number {
@@ -439,17 +506,31 @@ export class EnemyAI {
     private updateLookDirection(dt: number) {
         let targetLookPos: THREE.Vector3 | null = null;
         let isAimingAtTarget = false;
+        let turnRate = 3.5;
 
-        if (this.target && this.target.body && (this.state === AIState.Attack || this.state === AIState.Chase)) {
-            // Predict target position slightly
-            const targetVel = this.target.body.velocity;
-            const predictFactor = 0.2; // Predict 200ms ahead
-            targetLookPos = new THREE.Vector3(
-                this.target.body.position.x + targetVel.x * predictFactor,
-                this.target.body.position.y,
-                this.target.body.position.z + targetVel.z * predictFactor
-            );
-            isAimingAtTarget = true;
+        if (this.target && this.target.body) {
+            const state = this.stateMachine.getState();
+            const combatStates: AIStateId[] = [
+                AIStateId.Attack,
+                AIStateId.Chase,
+                AIStateId.TakeCover,
+                AIStateId.Flank,
+                AIStateId.Retreat,
+            ];
+            if (combatStates.includes(state)) {
+                const leadTime =
+                    state === AIStateId.Attack ? 0.14
+                    : state === AIStateId.TakeCover ? 0.06
+                    : 0.08;
+                const predicted = this.blackboard.predictTargetPosition(leadTime);
+                targetLookPos = predicted ?? new THREE.Vector3(
+                    this.target.body.position.x,
+                    this.target.body.position.y + 0.35,
+                    this.target.body.position.z
+                );
+                isAimingAtTarget = true;
+                turnRate = state === AIStateId.Attack ? 6.0 : 3.5;
+            }
         } else if (this.owner.body && this.movement.isMoving()) {
             const vel = this.owner.body.velocity;
             if (vel.lengthSquared() > 0.5) {
@@ -462,8 +543,7 @@ export class EnemyAI {
         }
 
         if (targetLookPos) {
-            // 1. Set Yaw (Movement/Body)
-            this.movement.lookAt(targetLookPos);
+            this.movement.lookAt(targetLookPos, dt, turnRate);
 
             // 2. Set Pitch (Head/Aiming)
             // Only adjust pitch if we are actually aiming at a target or look pos
@@ -541,40 +621,47 @@ export class EnemyAI {
         }
     }
 
-    private checkGrenadeCondition(dt: number) {
-        if (!this.target || !(this.owner as any).throwGrenade) return;
-
-        // Only throw if we haven't thrown recently (simple timer check or RNG)
-        if (Math.random() > 0.01) return; // Low chance per frame
+    private checkGrenadeCondition(_dt: number) {
+        if (!this.target || !(this.owner as Enemy & { throwGrenade?: () => void }).throwGrenade) return;
+        if (!this.blackboard.canThrowGrenade()) return;
 
         const dist = this.getDistanceToTarget();
-
-        // Conditions:
-        // 1. Target within range (10m - 30m)
-        // 2. Target NOT visible (hiding behind cover)
-        // 3. We have a rough idea where they are (recently seen)
-
-        if (dist > 10 && dist < 30) {
-            if (!this.senses.canSee(this.target)) {
-                // Throwing tactical grenade
-                (this.owner as any).throwGrenade();
-            }
+        if (dist > 12 && dist < 28 && !this.senses.canSee(this.target)) {
+            (this.owner as Enemy & { throwGrenade: () => void }).throwGrenade();
+            this.blackboard.markGrenade();
         }
     }
 
     public onHearSound(pos: THREE.Vector3) {
         if (this.state === AIState.Chase || this.state === AIState.Attack) return;
-        // Heard sound, investigating
+
+        const myPos = this.getOwnerPosition();
+        if (!myPos || myPos.distanceTo(pos) > 35) return;
+
         this.blackboard.heardSound(pos, 1);
-        this.reactionTimer = this.reactionDelay + Math.random() * 0.1;
+        this.alertParams = { pos: pos.clone(), timer: 5000 };
+        this.reactionTimer = this.reactionDelay + Math.random() * 0.15;
+
+        if (this.isPassiveState()) {
+            this.stateMachine.requestTransition(AIStateId.Alert, 'heard-sound');
+        }
     }
 
     public onTakeDamage(fromPosition: THREE.Vector3) {
         this.blackboard.tookDamage(fromPosition);
-        if (this.state !== AIState.Attack && this.state !== AIState.Chase) {
-            this.alertParams = { pos: fromPosition.clone(), timer: 5000 };
-            this.stateMachine.forceTransition(AIStateId.Alert, 'took-damage');
+
+        if (this.state === AIState.Attack || this.state === AIState.Chase) {
+            this.reactionTimer = Math.min(this.reactionDelay * 0.35, 0.25);
+
+            if (this.owner.health < this.healthThreshold && this.blackboard.canSeekCover()) {
+                this.stateMachine.requestTransition(AIStateId.TakeCover, 'damaged-seek-cover');
+            }
+            return;
         }
+
+        this.alertParams = { pos: fromPosition.clone(), timer: 5000 };
+        this.reactionTimer = this.reactionDelay * 0.6 + Math.random() * 0.15;
+        this.stateMachine.forceTransition(AIStateId.Alert, 'took-damage');
     }
 
     public evaluatePatrolPoint(pt: THREE.Vector3): number {

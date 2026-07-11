@@ -9,17 +9,24 @@ export class Input {
     public isPointerLocked: boolean = false;
     public isEditorActive: boolean = false;
     public autoLock: boolean = true;
+    private pointerLockPending: boolean = false;
+    private pointerLockTimeout: ReturnType<typeof setTimeout> | null = null;
     private previousKeys: Map<string, boolean> = new Map();
     private settingsManager: SettingsManager;
 
     constructor(settingsManager: SettingsManager) {
         this.settingsManager = settingsManager;
 
-        window.addEventListener('keydown', (e) => this.keys.set(e.code, true));
-        window.addEventListener('keyup', (e) => this.keys.set(e.code, false));
+        window.addEventListener('keydown', this.onKeyDown);
+        window.addEventListener('keyup', this.onKeyUp);
         window.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && this.autoLock && !this.isPointerLocked && !this.isInteractiveOverlayVisible() && !this.isEditorActive) {
+                e.preventDefault();
+                this.mouseButtons.set(0, false);
+                void this.lockCursor();
+                return;
+            }
             this.mouseButtons.set(e.button, true);
-            // Also set as a "key" for unified mapping (Mouse0, Mouse1)
             this.keys.set(`Mouse${e.button}`, true);
         });
         window.addEventListener('mouseup', (e) => {
@@ -28,7 +35,6 @@ export class Input {
         });
 
         document.addEventListener('mousemove', (e) => {
-            // Normalize mouse position (-1 to +1) for Raycasting
             this.mousePosition.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mousePosition.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -37,84 +43,101 @@ export class Input {
         });
 
         document.addEventListener('pointerlockchange', () => {
+            this.pointerLockPending = false;
+            if (this.pointerLockTimeout) clearTimeout(this.pointerLockTimeout);
+            this.pointerLockTimeout = null;
             const wasLocked = this.isPointerLocked;
             this.isPointerLocked = !!document.pointerLockElement;
-            
-            // If pointer lock was lost unexpectedly (not due to blur), don't clear keyboard input
-            // Only clear mouse button states if pointer lock is lost
+
             if (!this.isPointerLocked && wasLocked) {
-                // Clear mouse buttons but preserve keyboard state
-                // This prevents movement from stopping when pointer lock is lost
                 this.mouseButtons.clear();
                 this.previousMouseButtons.clear();
-                // Reset mouse delta
                 this.mouseDelta.x = 0;
                 this.mouseDelta.y = 0;
-                
-                // IMPORTANT: Do NOT clear keyboard keys here
-                // Keyboard input should continue working even if pointer lock is lost
             }
         });
-        
-        // Handle pointer lock errors (e.g., user gesture required)
+
         document.addEventListener('pointerlockerror', () => {
-            // Don't clear input state - just log for debugging
+            this.pointerLockPending = false;
+            if (this.pointerLockTimeout) clearTimeout(this.pointerLockTimeout);
+            this.pointerLockTimeout = null;
             console.warn('Pointer lock error - may need user gesture to re-lock');
-            // Don't clear keyboard input - only clear mouse buttons
             this.mouseButtons.clear();
             this.previousMouseButtons.clear();
         });
 
-
-
-        // Auto-relock on click if we should be locked (handled by game state usually, but this helps)
         document.addEventListener('click', () => {
-            if (this.autoLock && !this.isPointerLocked && !this.isMenuVisible() && !this.isEditorActive) {
-                this.lockCursor();
+            if (this.autoLock && !this.isPointerLocked && !this.isInteractiveOverlayVisible() && !this.isEditorActive) {
+                void this.lockCursor();
             }
         });
-        
-        // Clear all key states when window loses focus (fixes stuck keys after alt-tab)
-        // Only clear if we actually lost focus (not just pointer lock)
-        // Clear all key states when window loses focus (fixes stuck keys after alt-tab)
-        // Only clear if we actually lost focus (not just pointer lock)
-        window.addEventListener('blur', () => {
-            // Clear all keys to prevent stuck key states
-            this.keys.clear();
-            this.mouseButtons.clear();
-            this.previousKeys.clear();
-            this.previousMouseButtons.clear();
-            this.mouseDelta.x = 0;
-            this.mouseDelta.y = 0;
-        });
-        
-        window.addEventListener('focus', () => {
-            // Clear all keys again to ensure clean state (in case blur didn't fire)
-            this.keys.clear();
-            this.mouseButtons.clear();
-            this.previousKeys.clear();
-            this.previousMouseButtons.clear();
-            
-            // Reset mouse delta to prevent unwanted movement when regaining focus
-            this.mouseDelta.x = 0;
-            this.mouseDelta.y = 0;
-            
-            // Don't auto-lock here - browsers require user gesture
-            // User can click to re-lock via the click handler
+
+        // Clear input when the tab/window loses focus (prevents stuck keys after alt-tab).
+        window.addEventListener('blur', () => this.clearInputState());
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.clearInputState();
+            }
         });
     }
 
-    private isMenuVisible(): boolean {
-        // HACK: Check if menu overlay is visible
+    private onKeyDown = (e: KeyboardEvent): void => {
+        this.keys.set(e.code, true);
+    };
+
+    private onKeyUp = (e: KeyboardEvent): void => {
+        this.keys.set(e.code, false);
+    };
+
+    /** Reset all input state — call when focus is lost or menus take over. */
+    public clearInputState(): void {
+        this.keys.clear();
+        this.mouseButtons.clear();
+        this.previousKeys.clear();
+        this.previousMouseButtons.clear();
+        this.mouseDelta.x = 0;
+        this.mouseDelta.y = 0;
+    }
+
+    private isInteractiveOverlayVisible(): boolean {
         const overlay = document.getElementById('menu-overlay');
-        return overlay?.style.display !== 'none';
+        const menuVisible = !!overlay && overlay.style.display !== 'none';
+        const loadingVisible = !!document.getElementById('loading-screen');
+        const buyMenu = document.querySelector<HTMLElement>('.hud-buy-menu');
+        const buyVisible = !!buyMenu && buyMenu.style.display !== 'none';
+        return menuVisible || loadingVisible || buyVisible;
     }
 
-    public lockCursor() {
-        document.body.requestPointerLock();
+    public async lockCursor(): Promise<boolean> {
+        if (this.isPointerLocked || document.pointerLockElement) return true;
+        if (this.pointerLockPending || this.isInteractiveOverlayVisible() || this.isEditorActive) return false;
+        this.pointerLockPending = true;
+        this.pointerLockTimeout = setTimeout(() => {
+            this.pointerLockPending = false;
+            this.pointerLockTimeout = null;
+        }, 1500);
+        try {
+            const target = document.querySelector<HTMLCanvasElement>('canvas') ?? document.body;
+            if (target instanceof HTMLElement) {
+                if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+                target.focus({ preventScroll: true });
+            }
+            await target.requestPointerLock();
+            return true;
+        } catch (error) {
+            this.pointerLockPending = false;
+            if (this.pointerLockTimeout) clearTimeout(this.pointerLockTimeout);
+            this.pointerLockTimeout = null;
+            console.warn('Pointer lock request failed', error);
+            return false;
+        }
     }
 
     public unlockCursor() {
+        this.pointerLockPending = false;
+        if (this.pointerLockTimeout) clearTimeout(this.pointerLockTimeout);
+        this.pointerLockTimeout = null;
         document.exitPointerLock();
     }
 

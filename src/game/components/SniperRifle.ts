@@ -191,7 +191,7 @@ export class SniperRifle extends Weapon {
         }
 
         // Fire
-        if (this.game.input.getMouseButton(0)) {
+        if (this.game.input.isPointerLocked && this.game.input.getMouseButton(0)) {
             const now = Date.now();
             if (now - this.lastShot > this.fireRate) {
                 if (this.currentAmmo > 0) {

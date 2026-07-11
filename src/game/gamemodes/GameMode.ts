@@ -1,15 +1,35 @@
-import { Game } from '../../engine/Game';
-import { GameObject } from '../../engine/GameObject';
+import type { Game } from '../../engine/Game';
+import type { GameObject } from '../../engine/GameObject';
+import type { GameModeId } from './GameModeId';
+import type { IHUDService } from '../services/IHUDService';
 import * as THREE from 'three';
 
 export abstract class GameMode {
     protected game: Game;
 
+    /** Stable mode identifier — use instead of constructor.name checks. */
+    abstract readonly id: GameModeId;
+
     constructor(game: Game) {
         this.game = game;
     }
 
+    /** Typed HUD access for round timers, countdowns, training overlays, etc. */
+    protected get hud(): IHUDService {
+        return this.game.hudManager;
+    }
+
     public aiEnabled: boolean = true;
+
+    /** FPS modes lock the cursor; pointer-based modes can opt out. */
+    usesPointerLock(): boolean {
+        return true;
+    }
+
+    /** Mode builds its own geometry; skip file-based map loading. */
+    generatesOwnMap(): boolean {
+        return false;
+    }
 
     // Movement control hook
     public canPlayerMove(): boolean {

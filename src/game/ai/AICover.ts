@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../Enemy';
+import type { EnemyAI } from '../components/EnemyAI';
+import { AITeamCoordinator } from './AITeamCoordinator';
 
 
 export interface CoverPoint {
@@ -23,7 +25,7 @@ export class AICover {
     /**
      * Find nearby cover positions that can protect from the threat
      */
-    public findCover(threatPosition: THREE.Vector3): CoverPoint | null {
+    public findCover(threatPosition: THREE.Vector3, ai?: EnemyAI): CoverPoint | null {
         if (!this.owner.body) return null;
 
         const ownerPos = new THREE.Vector3(
@@ -33,17 +35,17 @@ export class AICover {
         );
 
         // First try strategic cover spots if available
-        const strategicCover = this.findStrategicCover(ownerPos, threatPosition);
+        const strategicCover = this.findStrategicCover(ownerPos, threatPosition, ai);
         if (strategicCover) return strategicCover;
 
         // Fallback: dynamic cover detection
-        return this.findDynamicCover(ownerPos, threatPosition);
+        return this.findDynamicCover(ownerPos, threatPosition, ai);
     }
 
     /**
      * Find cover from pre-computed strategic spots
      */
-    private findStrategicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3): CoverPoint | null {
+    private findStrategicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3, ai?: EnemyAI): CoverPoint | null {
         const coverSpots = this.game.recastNav?.strategicPoints?.coverSpots;
         if (!coverSpots || coverSpots.length === 0) return null;
 
@@ -62,28 +64,34 @@ export class AICover {
 
             const distance = ownerPos.distanceTo(coverPos);
             if (distance > this.coverSearchRadius) continue;
-
             // Score: quality * alignment, penalized by distance
             const score = spot.quality * alignment * (1 - distance / this.coverSearchRadius);
 
             if (score > bestScore) {
                 bestScore = score;
                 bestCover = {
-                    position: coverPos,
+                    position: this.snapPosition(coverPos),
                     quality: spot.quality,
                     distance
                 };
             }
         }
 
+        if (bestCover && ai && !AITeamCoordinator.reserveCover(ai, bestCover.position)) return null;
         return bestCover;
+    }
+
+    /** Snap cover positions onto walkable navmesh. */
+    private snapPosition(pos: THREE.Vector3): THREE.Vector3 {
+        const snapped = this.game.recastNav?.closestPointTo(pos);
+        return snapped ?? pos;
     }
 
     /**
      * Fallback: Find cover through runtime scene analysis
      */
-    private findDynamicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3): CoverPoint | null {
-        let _bestCover: CoverPoint | null = null;
+    private findDynamicCover(ownerPos: THREE.Vector3, threatPosition: THREE.Vector3, ai?: EnemyAI): CoverPoint | null {
+        let bestCover: CoverPoint | null = null;
         let bestScore = -1;
 
         const potentialCovers: CoverPoint[] = [];
@@ -126,11 +134,14 @@ export class AICover {
 
             if (score > bestScore) {
                 bestScore = score;
-                return cover;
+                bestCover = {
+                    ...cover,
+                    position: this.snapPosition(cover.position),
+                };
             }
         }
-
-        return null;
+        if (bestCover && ai && !AITeamCoordinator.reserveCover(ai, bestCover.position)) return null;
+        return bestCover;
     }
 
     /**
@@ -217,7 +228,6 @@ export class AICover {
         }
 
         // 3. Check if we can still see the threat (for shooting back)
-        const _coverToThreat = new THREE.Vector3().subVectors(threatPos, coverPos);
         const ray = new CANNON.Ray(
             new CANNON.Vec3(coverPos.x, coverPos.y + 0.5, coverPos.z),
             new CANNON.Vec3(threatPos.x, threatPos.y + 0.5, threatPos.z)
@@ -271,7 +281,7 @@ export class AICover {
     /**
      * Find a flanking position to approach the threat from the side
      */
-    public findFlankPosition(threatPosition: THREE.Vector3): THREE.Vector3 | null {
+    public findFlankPosition(threatPosition: THREE.Vector3, side?: 'left' | 'right'): THREE.Vector3 | null {
         if (!this.owner.body) return null;
 
         const ownerPos = new THREE.Vector3(
@@ -280,35 +290,67 @@ export class AICover {
             this.owner.body.position.z
         );
 
-        // Calculate perpendicular direction to threat
+        // Prefer choke-adjacent flank routes when tactical data exists
+        const chokes = this.game.recastNav?.strategicPoints?.chokePoints;
+        if (chokes?.length) {
+            let bestChoke: THREE.Vector3 | null = null;
+            let bestScore = -1;
+            for (const c of chokes) {
+                const pos = new THREE.Vector3(...c.position);
+                const toThreat = pos.distanceTo(threatPosition);
+                const toSelf = pos.distanceTo(ownerPos);
+                if (toSelf > toThreat && toSelf < 30) {
+                    const score = (1 / Math.max(c.width, 1)) * (1 - toSelf / 35);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestChoke = pos;
+                    }
+                }
+            }
+            if (bestChoke) return this.snapPosition(bestChoke);
+        }
+
         const toThreat = new THREE.Vector3().subVectors(threatPosition, ownerPos).normalize();
         const perp = new THREE.Vector3(-toThreat.z, 0, toThreat.x);
 
-        // Try positions to the left and right of threat
-        const flankDistance = 8;
-        const positions = [
-            threatPosition.clone().add(perp.clone().multiplyScalar(flankDistance)),
-            threatPosition.clone().add(perp.clone().multiplyScalar(-flankDistance))
-        ];
+        const flankDistance = 10;
+        const positions = side
+            ? [threatPosition.clone().add(perp.clone().multiplyScalar(side === 'left' ? flankDistance : -flankDistance))]
+            : [
+                threatPosition.clone().add(perp.clone().multiplyScalar(flankDistance)),
+                threatPosition.clone().add(perp.clone().multiplyScalar(-flankDistance)),
+            ];
 
-        // Find the position that's closer to owner and has a clear path
+        let best: THREE.Vector3 | null = null;
+        let bestDist = Infinity;
+
         for (const pos of positions) {
             pos.y = ownerPos.y;
+            const snapped = this.snapPosition(pos);
 
-            // Check if path is relatively clear
             const ray = new CANNON.Ray(
                 new CANNON.Vec3(ownerPos.x, ownerPos.y + 0.5, ownerPos.z),
-                new CANNON.Vec3(pos.x, pos.y + 0.5, pos.z)
+                new CANNON.Vec3(snapped.x, snapped.y + 0.5, snapped.z)
             );
             const result = new CANNON.RaycastResult();
             ray.intersectWorld(this.game.world, { skipBackfaces: true, result: result });
 
-            if (!result.hasHit || !result.hitPointWorld || ownerPos.distanceTo(new THREE.Vector3(result.hitPointWorld.x, result.hitPointWorld.y, result.hitPointWorld.z)) > 5) {
-                return pos;
+            const pathClear =
+                !result.hasHit
+                || !result.hitPointWorld
+                || ownerPos.distanceTo(
+                    new THREE.Vector3(result.hitPointWorld.x, result.hitPointWorld.y, result.hitPointWorld.z)
+                ) > 5;
+
+            if (pathClear) {
+                const dist = ownerPos.distanceToSquared(snapped);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = snapped;
+                }
             }
         }
 
-        return positions[0]; // Fallback to first position
+        return best ?? this.snapPosition(positions[0]);
     }
 }
-

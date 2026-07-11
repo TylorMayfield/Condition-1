@@ -1,4 +1,5 @@
 import { Game } from '../engine/Game';
+import type { IHUDService, TrainingStatsPayload } from './services/IHUDService';
 import { WeaponWheel } from './components/WeaponWheel';
 import { WeaponSelector } from './components/WeaponSelector';
 import { HUDComponent } from './ui/components/HUDComponent';
@@ -8,7 +9,7 @@ import { PlayerStats } from './ui/components/PlayerStats';
 import { DebugStats } from './ui/components/DebugStats';
 import { PauseMenu } from './ui/components/PauseMenu';
 
-export class HUDManager {
+export class HUDManager implements IHUDService {
     private game: Game;
     private container: HTMLDivElement;
 
@@ -24,6 +25,8 @@ export class HUDManager {
     private countdownDisplay: HTMLDivElement | null = null;
     private roundTimerDisplay: HTMLDivElement | null = null;
     private trainingStatsDisplay: HTMLDivElement | null = null;
+    private tacticalStatus: HTMLDivElement | null = null;
+    private buyMenu: HTMLDivElement | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -78,30 +81,25 @@ export class HUDManager {
     public showRoundResult(winner: string | null, reason: string) {
         if (!this.roundResultDisplay) {
             this.roundResultDisplay = document.createElement('div');
-            this.roundResultDisplay.style.position = 'absolute';
-            this.roundResultDisplay.style.top = '30%';
-            this.roundResultDisplay.style.left = '50%';
-            this.roundResultDisplay.style.transform = 'translate(-50%, -50%)';
-            this.roundResultDisplay.style.textAlign = 'center';
-            this.roundResultDisplay.style.textShadow = '0 0 10px rgba(0,0,0,0.8)';
-            this.roundResultDisplay.style.fontFamily = "'Segoe UI', sans-serif";
+            this.roundResultDisplay.className = 'hud-round-result';
             this.container.appendChild(this.roundResultDisplay);
         }
 
-        const color = winner === 'TaskForce' ? '#00ccff' : (winner === 'OpFor' ? '#ff3300' : '#ffffff');
+        const titleClass = winner === 'TaskForce'
+            ? 'hud-round-result__title hud-round-result__title--blue'
+            : winner === 'OpFor'
+                ? 'hud-round-result__title hud-round-result__title--red'
+                : 'hud-round-result__title hud-round-result__title--neutral';
 
         this.roundResultDisplay.innerHTML = `
-            <div style="font-size: 48px; font-weight: 800; color: ${color}; text-transform: uppercase; margin-bottom: 10px;">
-                ${winner ? winner + ' WINS' : 'ROUND DRAW'}
+            <div class="${titleClass}">
+                ${winner ? winner + ' Wins' : 'Round Draw'}
             </div>
-            <div style="font-size: 24px; color: #fff; opacity: 0.8;">
-                ${reason}
-            </div>
+            <div class="hud-round-result__reason">${reason}</div>
         `;
 
         this.roundResultDisplay.style.display = 'block';
 
-        // Auto hide after a few seconds
         setTimeout(() => {
             if (this.roundResultDisplay) this.roundResultDisplay.style.display = 'none';
         }, 4000);
@@ -110,22 +108,13 @@ export class HUDManager {
     public showCountdown(seconds: number) {
         if (!this.countdownDisplay) {
             this.countdownDisplay = document.createElement('div');
-            this.countdownDisplay.style.position = 'absolute';
-            this.countdownDisplay.style.top = '50%';
-            this.countdownDisplay.style.left = '50%';
-            this.countdownDisplay.style.transform = 'translate(-50%, -50%)';
-            this.countdownDisplay.style.textAlign = 'center';
-            this.countdownDisplay.style.fontFamily = "'Segoe UI', sans-serif";
-            this.countdownDisplay.style.pointerEvents = 'none';
+            this.countdownDisplay.className = 'hud-countdown';
             this.container.appendChild(this.countdownDisplay);
         }
 
-        // Display countdown with animation effect
         const displayNumber = Math.max(1, seconds);
         this.countdownDisplay.innerHTML = `
-            <div style="font-size: 64px; font-weight: bold; color: yellow; text-shadow: 0 0 20px orange;">
-                ${displayNumber}
-            </div>
+            <div class="hud-countdown__num">${displayNumber}</div>
         `;
 
         this.countdownDisplay.style.display = 'block';
@@ -141,33 +130,18 @@ export class HUDManager {
     public showRoundTimer(timeString: string) {
         if (!this.roundTimerDisplay) {
             this.roundTimerDisplay = document.createElement('div');
-            this.roundTimerDisplay.style.position = 'absolute';
-            this.roundTimerDisplay.style.top = '20px';
-            this.roundTimerDisplay.style.left = 'auto';
-            this.roundTimerDisplay.style.right = '20px';
-            this.roundTimerDisplay.style.transform = 'none';
-            this.roundTimerDisplay.style.fontFamily = "'Segoe UI', monospace";
-            this.roundTimerDisplay.style.fontSize = '28px';
-            this.roundTimerDisplay.style.fontWeight = 'bold';
-            this.roundTimerDisplay.style.color = '#ffffff';
-            this.roundTimerDisplay.style.textShadow = '0 0 10px rgba(0,0,0,0.8)';
-            this.roundTimerDisplay.style.padding = '8px 16px';
-            this.roundTimerDisplay.style.backgroundColor = 'rgba(0,0,0,0.5)';
-            this.roundTimerDisplay.style.borderRadius = '4px';
-            this.roundTimerDisplay.style.pointerEvents = 'none';
+            this.roundTimerDisplay.className = 'hud-timer';
             this.container.appendChild(this.roundTimerDisplay);
         }
 
-        // Change color when low on time
         const [minutes, seconds] = timeString.split(':').map(Number);
         const totalSeconds = minutes * 60 + seconds;
 
+        this.roundTimerDisplay.className = 'hud-timer';
         if (totalSeconds <= 30) {
-            this.roundTimerDisplay.style.color = '#ff3300'; // Red when < 30s
+            this.roundTimerDisplay.classList.add('hud-timer--critical');
         } else if (totalSeconds <= 60) {
-            this.roundTimerDisplay.style.color = '#ffcc00'; // Yellow when < 1min
-        } else {
-            this.roundTimerDisplay.style.color = '#ffffff'; // White otherwise
+            this.roundTimerDisplay.classList.add('hud-timer--warn');
         }
 
         this.roundTimerDisplay.textContent = timeString;
@@ -182,30 +156,10 @@ export class HUDManager {
     }
 
     /** Show training stats panel (for RL training mode) */
-    public showTrainingStats(stats: {
-        round: number;
-        maxRounds: number;
-        avgReward: number;
-        trainingSteps: number;
-        experienceCount: number;
-        bufferSize: number;
-        simTimeLeft: number;
-    }) {
+    public showTrainingStats(stats: TrainingStatsPayload) {
         if (!this.trainingStatsDisplay) {
             this.trainingStatsDisplay = document.createElement('div');
-            this.trainingStatsDisplay.style.position = 'absolute';
-            this.trainingStatsDisplay.style.top = '70px';
-            this.trainingStatsDisplay.style.left = '20px';
-            this.trainingStatsDisplay.style.fontFamily = "'Segoe UI', monospace";
-            this.trainingStatsDisplay.style.fontSize = '12px';
-            this.trainingStatsDisplay.style.color = '#00ff88';
-            this.trainingStatsDisplay.style.textShadow = '0 0 5px rgba(0,255,136,0.5)';
-            this.trainingStatsDisplay.style.padding = '12px';
-            this.trainingStatsDisplay.style.backgroundColor = 'rgba(0,20,10,0.85)';
-            this.trainingStatsDisplay.style.border = '1px solid #00ff88';
-            this.trainingStatsDisplay.style.borderRadius = '6px';
-            this.trainingStatsDisplay.style.pointerEvents = 'none';
-            this.trainingStatsDisplay.style.minWidth = '200px';
+            this.trainingStatsDisplay.className = 'hud-training';
             this.container.appendChild(this.trainingStatsDisplay);
         }
 
@@ -213,45 +167,27 @@ export class HUDManager {
         const bufferProgress = (stats.experienceCount / stats.bufferSize) * 100;
 
         this.trainingStatsDisplay.innerHTML = `
-            <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #00ffaa;">
-                🧠 RL TRAINING
-            </div>
-            <div style="margin-bottom: 4px;">
-                📊 Round: <span style="color: #fff;">${stats.round}/${stats.maxRounds}</span>
-            </div>
-            <div style="margin-bottom: 4px;">
-                 ⏱️ Time Left: <span style="color: ${stats.simTimeLeft < 10 ? 'red' : 'white'};">${stats.simTimeLeft}s</span>
-            </div>
-            <div style="margin-bottom: 4px;">
-                🎯 Avg Reward: <span style="color: ${stats.avgReward >= 0 ? '#00ff00' : '#ff4444'};">${stats.avgReward.toFixed(2)}</span>
-            </div>
-            <div style="margin-bottom: 4px;">
-                🔧 Training Steps: <span style="color: #fff;">${stats.trainingSteps}</span>
-            </div>
-            <div style="margin-bottom: 8px;">
-                💾 Buffer: <span style="color: #fff;">${stats.experienceCount}/${stats.bufferSize}</span>
-            </div>
-            <div style="background: rgba(0,0,0,0.3); border-radius: 3px; height: 8px; margin-bottom: 4px;">
-                <div style="background: linear-gradient(90deg, #00ff88, #00ffcc); height: 100%; width: ${progress}%; border-radius: 3px;"></div>
-            </div>
-            <div style="font-size: 10px; color: #888;">Progress: ${progress.toFixed(1)}%</div>
-            <div style="background: rgba(0,0,0,0.3); border-radius: 3px; height: 4px; margin-top: 6px;">
-                <div style="background: #ffaa00; height: 100%; width: ${bufferProgress}%; border-radius: 3px;"></div>
-            </div>
-            <div style="font-size: 10px; color: #888;">Buffer: ${bufferProgress.toFixed(0)}%</div>
-            
-            <div style="margin-top: 10px; border-top: 1px solid #335544; padding-top: 5px;">
-                <div style="font-size: 12px; margin-bottom: 4px;">Speed: ${(this.game.timeScale || 1).toFixed(0)}x</div>
-                <div style="display: flex; gap: 4px; margin-bottom: 4px;">
-                    <button onclick="window.game.timeScale = 1" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[6] 1x</button>
-                    <button onclick="window.game.timeScale = 5" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[7] 5x</button>
-                    <button onclick="window.game.timeScale = 20" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[8] 20x</button>
-                    <button onclick="window.game.timeScale = 100" style="background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">[9] MAX</button>
+            <div class="hud-training__title">RL Training</div>
+            <div class="hud-training__row">Round: <span>${stats.round}/${stats.maxRounds}</span></div>
+            <div class="hud-training__row">Time Left: <span style="color: ${stats.simTimeLeft < 10 ? 'var(--c1-red)' : 'inherit'}">${stats.simTimeLeft}s</span></div>
+            <div class="hud-training__row">Avg Reward: <span style="color: ${stats.avgReward >= 0 ? 'var(--c1-glow)' : 'var(--c1-red)'}">${stats.avgReward.toFixed(2)}</span></div>
+            <div class="hud-training__row">Steps: <span>${stats.trainingSteps}</span></div>
+            <div class="hud-training__row">Buffer: <span>${stats.experienceCount}/${stats.bufferSize}</span></div>
+            <div class="hud-training__bar"><div class="hud-training__bar-fill" style="width: ${progress}%"></div></div>
+            <div class="hud-training__row" style="font-size:9px">Progress ${progress.toFixed(1)}%</div>
+            <div class="hud-training__bar"><div class="hud-training__bar-fill hud-training__bar-fill--amber" style="width: ${bufferProgress}%"></div></div>
+            <div class="hud-training__controls">
+                <div class="hud-training__row">Speed: ${(this.game.timeScale || 1).toFixed(0)}x</div>
+                <div class="hud-training__speed-btns">
+                    <button class="hud-training__btn" onclick="window.game.timeScale = 1">1x</button>
+                    <button class="hud-training__btn" onclick="window.game.timeScale = 5">5x</button>
+                    <button class="hud-training__btn" onclick="window.game.timeScale = 20">20x</button>
+                    <button class="hud-training__btn" onclick="window.game.timeScale = 100">MAX</button>
                 </div>
-                <button onclick="window.game.renderingEnabled = !window.game.renderingEnabled" style="width: 100%; background: #333; color: white; border: 1px solid #555; cursor: pointer; padding: 2px 5px;">
-                    [0] ${this.game.renderingEnabled ? 'Disable Rendering' : 'Enable Rendering'}
+                <button class="hud-training__btn" style="width:100%;margin-top:4px" onclick="window.game.renderingEnabled = !window.game.renderingEnabled">
+                    ${this.game.renderingEnabled ? 'Disable Rendering' : 'Enable Rendering'}
                 </button>
-                 <div style="font-size: 10px; color: #666; margin-top: 2px;">Disable render for max speed</div>
+                <div class="hud-training__hint">Disable render for max training speed</div>
             </div>
         `;
         this.trainingStatsDisplay.style.display = 'block';
@@ -263,6 +199,30 @@ export class HUDManager {
             this.trainingStatsDisplay.style.display = 'none';
         }
     }
+
+    private getTacticalStatus(): HTMLDivElement {
+        if (!this.tacticalStatus) {
+            this.tacticalStatus = document.createElement('div');
+            this.tacticalStatus.className = 'hud-tactical-status';
+            this.tacticalStatus.style.cssText = 'position:absolute;left:50%;bottom:12%;transform:translateX(-50%);padding:10px 18px;background:rgba(0,0,0,.72);color:#fff;font:700 16px monospace;z-index:50;';
+            this.container.appendChild(this.tacticalStatus);
+        }
+        return this.tacticalStatus;
+    }
+    public showMoney(amount: number): void { const el = this.getTacticalStatus(); el.dataset.money = `$${amount}`; el.textContent = `${el.dataset.money} ${el.dataset.objective ?? ''}`.trim(); el.style.display = 'block'; }
+    public showObjectiveStatus(text: string, urgent = false): void { const el = this.getTacticalStatus(); el.dataset.objective = text; el.style.color = urgent ? '#ff6655' : '#fff'; el.textContent = `${el.dataset.money ?? ''} ${text}`.trim(); el.style.display = 'block'; }
+    public hideObjectiveStatus(): void { if (this.tacticalStatus) { delete this.tacticalStatus.dataset.objective; this.tacticalStatus.textContent = this.tacticalStatus.dataset.money ?? ''; } }
+    public showInteractionProgress(label: string, progress: number): void { this.showObjectiveStatus(`${label} ${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`, true); }
+    public hideInteractionProgress(): void { this.hideObjectiveStatus(); }
+    public showHalftime(): void { this.showObjectiveStatus('HALFTIME — SIDES SWITCHING'); }
+    public showCampaignResult(title: string, nextUnlock?: string): void { this.showObjectiveStatus(`${title}${nextUnlock ? ` · Unlocked: ${nextUnlock}` : ''}`); }
+    public showBuyMenu(items: ReadonlyArray<{ id: string; name: string; price: number; enabled: boolean }>, onPurchase: (id: string) => void): void {
+        if (!this.buyMenu) { this.buyMenu = document.createElement('div'); this.buyMenu.className = 'hud-buy-menu'; this.buyMenu.style.cssText = 'position:absolute;inset:12% 20%;padding:24px;background:rgba(5,10,14,.96);border:1px solid #4dffaa;z-index:2000;pointer-events:auto;color:#fff;font-family:monospace;display:grid;gap:8px;'; this.container.appendChild(this.buyMenu); }
+        this.buyMenu.innerHTML = '<h2>BUY EQUIPMENT</h2>';
+        for (const item of items) { const button = document.createElement('button'); button.textContent = `${item.name} — $${item.price}`; button.disabled = !item.enabled; button.onclick = () => onPurchase(item.id); this.buyMenu.appendChild(button); }
+        this.buyMenu.style.display = 'grid'; this.game.input.unlockCursor();
+    }
+    public hideBuyMenu(): void { if (this.buyMenu) this.buyMenu.style.display = 'none'; }
 
     private createVignette(): HTMLDivElement {
         const div = document.createElement('div');
@@ -287,7 +247,7 @@ export class HUDManager {
             </svg>
         `)}`;
 
-        div.style.background = 'rgba(0,0,0,0.3)';
+        div.style.background = 'rgba(4, 8, 12, 0.25)';
         div.style.maskImage = svgMask;
         div.style.webkitMaskImage = svgMask;
         div.style.maskSize = '100% 100%';

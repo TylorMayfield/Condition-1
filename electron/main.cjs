@@ -23,7 +23,7 @@ const createWindow = () => {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     } else {
         // Dev: Wait for Vite? Or just assume it's running.
-        // User must run 'npm run electron:dev' which runs vite concurrently.
+        // User must run 'pnpm electron:dev' which runs vite concurrently.
         // We can try to connect.
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools();

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GameMode, type ScoreData } from './GameMode';
+import { GameModeId } from './GameModeId';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
 import { Tower } from '../entities/Tower';
@@ -16,6 +17,12 @@ import { Enemy } from '../Enemy';
  * - Win by destroying enemy Nexus
  */
 export class MOBAGameMode extends GameMode {
+    readonly id = GameModeId.MOBA;
+
+    generatesOwnMap(): boolean {
+        return true;
+    }
+
     // Lane definitions (paths from base to base)
     private lanes: { [lane: string]: THREE.Vector3[] } = {
         'top': [],

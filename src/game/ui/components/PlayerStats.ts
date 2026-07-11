@@ -3,73 +3,61 @@ import { Game } from '../../../engine/Game';
 
 export class PlayerStats extends HUDComponent {
     private game: Game;
-    private healthDisplay: HTMLElement;
-    private ammoDisplay: HTMLElement;
+    private healthDisplay: HTMLDivElement | null = null;
+    private ammoDisplay: HTMLDivElement | null = null;
 
     constructor(game: Game) {
         super();
         this.game = game;
-
-        // Setup Container to hold both but positioned absolutely
+        this.container.className = 'hud-player-stats';
         this.container.style.width = '100%';
         this.container.style.height = '100%';
         this.container.style.position = 'absolute';
-        this.container.style.top = '0';
-        this.container.style.left = '0';
+        this.createDOM();
+    }
 
-        this.healthDisplay = this.createHealthDisplay();
-        this.ammoDisplay = this.createAmmoDisplay();
-
+    private createDOM() {
+        this.healthDisplay = document.createElement('div');
+        this.healthDisplay.className = 'hud-stat-panel hud-stat-panel--left';
+        this.healthDisplay.innerHTML = `
+            <div class="hud-stat-label">Health</div>
+            <div class="hud-stat-value">100%</div>
+        `;
         this.container.appendChild(this.healthDisplay);
+
+        this.ammoDisplay = document.createElement('div');
+        this.ammoDisplay.className = 'hud-stat-panel hud-stat-panel--right';
+        this.ammoDisplay.innerHTML = `
+            <div class="hud-stat-label">Ammunition</div>
+            <div class="hud-stat-value">— / —</div>
+        `;
         this.container.appendChild(this.ammoDisplay);
     }
 
-    private createHealthDisplay(): HTMLElement {
-        const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.bottom = '20px';
-        div.style.left = '20px';
-        div.style.fontSize = '24px';
-        div.style.fontFamily = 'monospace';
-        div.style.color = '#00ff00';
-        div.style.textShadow = '1px 1px 0 #000';
-        div.innerHTML = 'HEALTH: 100%';
-        return div;
-    }
-
-    private createAmmoDisplay(): HTMLElement {
-        const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.bottom = '20px';
-        div.style.right = '20px';
-        div.style.fontSize = '24px';
-        div.style.textAlign = 'right';
-        div.style.fontFamily = 'monospace';
-        div.style.color = '#00ff00';
-        div.style.textShadow = '1px 1px 0 #000';
-        div.innerHTML = 'AMMO: -- / --';
-        return div;
-    }
-
     public update(_dt: number): void {
-        if (!this.game.player) return;
-
-        // Hide if spectating
-        if (this.game.player.isSpectating) {
+        const player = this.game.player;
+        if (!player || this.game.isPaused) {
             this.container.style.display = 'none';
             return;
         }
         this.container.style.display = 'block';
 
-        // Update Health
-        this.healthDisplay.innerText = `HEALTH: ${Math.max(0, this.game.player.health)}%`;
+        const healthVal = this.healthDisplay?.querySelector('.hud-stat-value');
+        if (healthVal) {
+            const maxHealth = 100;
+            const pct = Math.max(0, Math.round((player.health / maxHealth) * 100));
+            healthVal.textContent = `${pct}%`;
+            healthVal.classList.toggle('hud-stat-value--warn', pct <= 25);
+        }
 
-        // Update Ammo
-        const weapon = this.game.player.getCurrentWeapon();
-        if (weapon) {
-            this.ammoDisplay.innerHTML = `MAG: ${weapon.currentAmmo} <br> RES: ${weapon.reserveAmmo}`;
-        } else {
-            this.ammoDisplay.innerHTML = `AMMO: -- / --`;
+        const ammoVal = this.ammoDisplay?.querySelector('.hud-stat-value');
+        const weapon = player.getCurrentWeapon();
+        if (ammoVal) {
+            if (weapon) {
+                ammoVal.textContent = `${weapon.currentAmmo} / ${weapon.reserveAmmo}`;
+            } else {
+                ammoVal.textContent = '— / —';
+            }
         }
     }
 }

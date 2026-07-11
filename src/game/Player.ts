@@ -7,6 +7,7 @@ import { WeaponSystem } from './components/WeaponSystem';
 import { Weapon } from './components/Weapon';
 import { SniperRifle } from './components/SniperRifle';
 import { Grenade } from './components/Grenade';
+import type { EquipmentDefinition } from './equipment/EquipmentCatalog';
 
 export class Player extends GameObject {
     public health: number = 100;
@@ -16,6 +17,10 @@ export class Player extends GameObject {
     private weapons: Weapon[] = [];
     private currentWeaponIndex: number = 0;
     public grenadeCount: number = 3;
+    public equipmentIds: string[] = ['knife', 'ct-pistol'];
+    public armor: number = 0;
+    public hasHelmet: boolean = false;
+    public hasDefuseKit: boolean = false;
 
     // Spectator State
     public isSpectating: boolean = false;
@@ -34,7 +39,8 @@ export class Player extends GameObject {
             fixedRotation: true, // Prevent rolling
             material: new CANNON.Material({ friction: 0, restitution: 0 })
         });
-        this.body.linearDamping = 0.9;
+        this.body.allowSleep = false;
+        this.body.linearDamping = 0.1;
 
         // Init Components
         this.controller = new PlayerController(game, this);
@@ -121,6 +127,22 @@ export class Player extends GameObject {
         weapon.mesh.visible = false; // Hide by default
     }
 
+    public getWeapons(): readonly Weapon[] { return this.weapons; }
+    public addEquipment(item: EquipmentDefinition): boolean {
+        if (this.equipmentIds.includes(item.id)) return false;
+        if (item.category === 'primary') this.equipmentIds = this.equipmentIds.filter(id => id !== 'rifle' && id !== 'sniper');
+        this.equipmentIds.push(item.id);
+        if (item.id === 'frag') this.grenadeCount++;
+        if (item.id === 'armor' || item.id === 'helmet') this.armor = 100;
+        if (item.id === 'helmet') this.hasHelmet = true;
+        if (item.id === 'defuse-kit') this.hasDefuseKit = true;
+        return true;
+    }
+    public resetRoundEquipment(team: 'TaskForce' | 'OpFor'): void {
+        this.equipmentIds = ['knife', team === 'TaskForce' ? 'ct-pistol' : 'op-pistol'];
+        this.armor = 0; this.hasHelmet = false; this.hasDefuseKit = false; this.grenadeCount = 0;
+    }
+
     public switchWeapon(index: number) {
         if (index < 0 || index >= this.weapons.length) return;
         if (index === this.currentWeaponIndex && this.weapons[this.currentWeaponIndex].mesh.visible) return;
@@ -170,6 +192,7 @@ export class Player extends GameObject {
     }
 
     public takeDamage(amount: number) {
+        if (this.armor > 0) { const absorbed = Math.min(this.armor, Math.round(amount * 0.35)); this.armor -= absorbed; amount -= absorbed; }
         this.health -= amount;
         if (this.health <= 0) {
             this.health = 0;

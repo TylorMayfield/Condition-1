@@ -3,31 +3,22 @@
 // Runs spectate-only TDM rounds and trains bots in real-time
 
 import * as THREE from 'three';
-// import * as CANNON from 'cannon-es'; // Unused until physics raycast implemented
 
 import { GameMode, type ScoreData } from './GameMode';
+import { GameModeId } from './GameModeId';
 import { Game } from '../../engine/Game';
 import { GameObject } from '../../engine/GameObject';
 import { Enemy } from '../Enemy';
 import { SpectatorCameraController } from '../controllers/SpectatorCameraController';
 import { RLTrainer } from '../rl/RLTrainer';
-import type { Observation, Action } from '../rl/EnvWrapper';
-
-interface TrainedBot {
-    bot: Enemy;
-    lastObs: Observation | null;
-    lastAction: Action | null;
-    lastLogProb: number;
-    lastValue: number;
-    // Track damage for reward calculation
-    lastEnemyDamage: number;    // Damage dealt to enemies
-    lastFriendlyDamage: number; // Friendly fire (negative reward)
-    // Exploration tracking
-    spawnPosition: THREE.Vector3;
-    stuckTimer: number; // Time spent not moving significantly
-}
+import type { TrainedBot } from './rl/RLTrainingTypes';
+import { buildObservation } from './rl/RLObservation';
+import { computeStepReward } from './rl/RLReward';
+import { applyRLAction } from './rl/RLAction';
 
 export class RLTrainingGameMode extends GameMode {
+    readonly id = GameModeId.RL_TRAINING;
+
     // Training components
     private trainer: RLTrainer;
     private trainedBots: TrainedBot[] = [];
@@ -146,7 +137,7 @@ export class RLTrainingGameMode extends GameMode {
         if (now - this.lastHUDUpdate > 100) {
             this.lastHUDUpdate = now;
             const stats = this.trainer.getStats();
-            (this.game.hudManager as any).showTrainingStats({
+            this.hud.showTrainingStats({
                 round: this.roundNumber,
                 maxRounds: this.maxRounds,
                 avgReward: stats.avgReward,
@@ -174,15 +165,15 @@ export class RLTrainingGameMode extends GameMode {
     }
 
     private updateTraining(): void {
+        const alive = { taskForce: this.taskForceAlive, opFor: this.opForAlive };
+
         for (const tb of this.trainedBots) {
             if (tb.bot.isDead) continue;
 
-            // Get current observation
-            const obs = this.buildObservation(tb.bot);
+            const obs = buildObservation(tb.bot, alive);
 
-            // If we have previous state, store experience
             if (tb.lastObs && tb.lastAction) {
-                const reward = this.computeReward(tb.bot, tb.lastObs, obs);
+                const reward = computeStepReward(tb.bot, tb, tb.lastObs, obs);
                 this.trainer.storeExperience(
                     tb.lastObs,
                     tb.lastAction,
@@ -194,212 +185,15 @@ export class RLTrainingGameMode extends GameMode {
                 );
             }
 
-            // Get action from trainer
             const { action, logProb, value } = this.trainer.predict(obs);
 
-            // Apply action
-            this.applyAction(tb.bot, action);
+            applyRLAction(tb.bot, action);
 
-            // Store for next step
             tb.lastObs = obs;
             tb.lastAction = action;
             tb.lastLogProb = logProb;
             tb.lastValue = value;
         }
-    }
-
-    private buildObservation(bot: Enemy): Observation {
-        const body = bot.body;
-        const pos = body ? body.position : { x: 0, y: 0, z: 0 };
-        const vel = body ? body.velocity : { x: 0, y: 0, z: 0 };
-
-        // Raycast for cover/threat detection
-        const coverDist = this.raycastCover(bot);
-        const isUnderFire = bot.isUnderFire ? 1 : 0;
-
-        return {
-            position: [pos.x, pos.y, pos.z],
-            velocity: [vel.x, vel.y, vel.z],
-            health: bot.health,
-            armor: 0,
-            weaponId: 0,
-            ammo: (bot.weapon as any)?.currentAmmo ?? 30,
-            crouch: (bot as any).isProne ? 1 : 0, // Assuming isProne tracks crouch/prone state
-            grenades: 0, // Should be tracked on bot
-            team: bot.team === 'TaskForce' ? 0 : 1,
-            visionGrid: this.buildVisionGrid(bot),
-            coverDistance: coverDist,
-            isUnderFire: isUnderFire
-        };
-    }
-
-    private buildVisionGrid(bot: Enemy): number[] {
-        const grid = new Array(32 * 32).fill(0);
-        const botPos = bot.body?.position;
-        if (!botPos) return grid;
-
-        // Mark positions of other bots in the grid
-        const allBots = Array.from(this.taskForceAlive).concat(Array.from(this.opForAlive));
-        for (const other of allBots) {
-            if (other === bot) continue;
-            const otherPos = other.body?.position;
-            if (!otherPos) continue;
-
-            const dx = otherPos.x - botPos.x;
-            const dz = otherPos.z - botPos.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-
-            if (dist > 50) continue;
-
-            const gridX = Math.floor((dx + 32) / 2);
-            const gridZ = Math.floor((dz + 32) / 2);
-
-            if (gridX >= 0 && gridX < 32 && gridZ >= 0 && gridZ < 32) {
-                const idx = gridZ * 32 + gridX;
-                grid[idx] = other.team === bot.team ? 1 : 2;
-            }
-        }
-        return grid;
-    }
-
-    private raycastCover(bot: Enemy): number {
-        // Simple raycast check in 8 directions to find nearest obstacle
-        // Returns normalized distance (0 = touching cover, 1 = no cover near)
-        if (!bot.body) return 1;
-        
-        const start = new THREE.Vector3(bot.body.position.x, bot.body.position.y, bot.body.position.z);
-        const directions = [
-            new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
-            new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
-            new THREE.Vector3(1, 0, 1), new THREE.Vector3(-1, 0, -1),
-            new THREE.Vector3(1, 0, -1), new THREE.Vector3(-1, 0, 1)
-        ];
-
-        // let minDist = 10; // Max check distance
-
-        const raycaster = new THREE.Raycaster();
-        
-        for (const dir of directions) {
-            raycaster.set(start, dir.normalize());
-            // This requires access to scene meshes. 
-            // Optimally we'd use physics world raycast, but THREE raycast is easier if we have "Level" group.
-            // For now, let's assume we can raycast against map geometry if available, 
-            // or use physics world. Physics world is safer.
-            
-            // Unused currently, but intended for physics raycast
-            /*
-            const result = new CANNON.Ray(
-                new CANNON.Vec3(start.x, start.y, start.z),
-                new CANNON.Vec3(start.x + dir.x * 10, start.y + dir.y * 10, start.z + dir.z * 10)
-            );
-            */
-            
-            // Perform raycase (simplified - requires proper world.raycastAny or similar)
-            // Since CANNON raycasting can be verbose, let's skip actual physics query in this snippet due to complexity
-            // without seeing World wrapper.
-            // Fallback: Return 1 (no cover) unless implemented. 
-            // TODO: Implement proper physics raycast here.
-        }
-        
-        return 1; // Placeholder until physics raycast is robust
-    }
-
-    private computeReward(bot: Enemy, prevObs: Observation, currObs: Observation): number {
-        let reward = 0;
-
-        const tb = this.trainedBots.find(t => t.bot === bot);
-        if (!tb) return 0;
-
-        // --- COMBAT REWARDS ---
-        
-        // Damage Dealt (Huge incentive)
-        const enemyDamage = bot.enemyDamageDealt;
-        const newEnemyDamage = enemyDamage - tb.lastEnemyDamage;
-        if (newEnemyDamage > 0) {
-            reward += newEnemyDamage * 0.5; // +0.5 per damage point (50 for kill basically)
-        }
-        
-        // Friendly Fire (Penalty)
-        const friendlyDamage = bot.friendlyDamageDealt;
-        const newFriendlyDamage = friendlyDamage - tb.lastFriendlyDamage;
-        if (newFriendlyDamage > 0) {
-            reward -= newFriendlyDamage * 1.0; 
-        }
-
-        tb.lastEnemyDamage = enemyDamage;
-        tb.lastFriendlyDamage = friendlyDamage;
-
-        // Kills (If tracked directly on bot, or infer from massive damage jump?)
-        // Damage reward covers kills mostly, but a kill bonus is nice.
-        // We lack explicit "kill count" on bot class currently, but can check "score".
-        // Let's rely on damage for now.
-
-        // --- SURVIVAL ---
-        
-        // Taking Damage
-        const healthLost = prevObs.health - currObs.health;
-        if (healthLost > 0) {
-            reward -= healthLost * 0.2; // Penalty for getting hit
-        }
-        
-        // Death
-        if (bot.isDead) {
-            reward -= 50; // Big penalty
-        }
-
-        // --- TACTICAL BEHAVIOR ---
-
-        // Cover Usage
-        // If under fire, reward being near cover
-        if (currObs.isUnderFire && currObs.coverDistance < 0.2) {
-            reward += 1.0; // Good job taking cover!
-        }
-
-        // Leaning
-        // If shooting (Action not in obs directly, but we can infer or pass it if needed)
-        // For now, small random reward for leaning while under fire?
-        // Hard to reward without context of "peeking". 
-        
-        // Crouching
-        // Reward crouching if under fire
-        if (currObs.isUnderFire && currObs.crouch) {
-            reward += 0.5;
-        }
-
-        // Movement
-        // Small penalty for existing implies urgency, but we want survival.
-        // Slight movement reward to prevent camping forever?
-        // Actually, camping is a valid tactic if winning. 
-        // Remove "Start Distance" reward as it encourages running blindly.
-        
-        return Math.max(-100, Math.min(100, reward));
-    }
-
-    private applyAction(bot: Enemy, action: Action): void {
-        const baseSpeed = 5;
-        const speed = action.sprint > 0.5 ? baseSpeed * 1.5 : baseSpeed;
-        
-        const body = bot.body;
-        const mesh = bot.mesh;
-
-        if (body) {
-            body.velocity.x = action.moveX * speed;
-            body.velocity.z = action.moveZ * speed;
-            if (action.jump > 0.5) bot.jump();
-        }
-
-        if (mesh) {
-            mesh.rotation.y = action.yaw;
-        }
-
-        bot.setLookAngles(action.yaw, action.pitch);
-
-        // Lean
-        if (bot.lean) bot.lean(action.lean);
-
-        if (action.fire > 0.5) bot.fireAtLookDirection();
-        if (action.throwGrenade > 0.5) bot.throwGrenade();
-        if (action.crouchToggle > 0.5) bot.toggleCrouch();
     }
 
     private startNewRound(): void {
@@ -559,7 +353,7 @@ export class RLTrainingGameMode extends GameMode {
         this.trainingActive = false;
 
         // Hide stats UI
-        (this.game.hudManager as any).hideTrainingStats();
+        this.hud.hideTrainingStats();
 
         // Save the model
         await this.trainer.saveModel('trained-bot');

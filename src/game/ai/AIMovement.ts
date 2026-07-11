@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import type { Enemy } from '../Enemy';
 import { Game } from '../../engine/Game';
+import { AIStateId } from './AIState';
 
 export class AIMovement {
     private owner: Enemy;
@@ -117,8 +118,15 @@ export class AIMovement {
                     this.owner.body.position
                 );
 
-                // Look where we are going
-                if (agentVel.lengthSq() > 0.1) {
+                // Look where we are going — but not during combat (EnemyAI handles aim)
+                const aiState = this.owner.ai?.getState();
+                const inCombat =
+                    aiState === AIStateId.Attack
+                    || aiState === AIStateId.Chase
+                    || aiState === AIStateId.TakeCover
+                    || aiState === AIStateId.Flank;
+
+                if (!inCombat && agentVel.lengthSq() > 0.1) {
                     const lookPos = new THREE.Vector3(
                         this.owner.body.position.x + agentVel.x,
                         this.owner.body.position.y,
@@ -231,10 +239,20 @@ export class AIMovement {
             this.owner.body.position
         );
 
-        this.lookAt(targetPos);
+        if (!this.isCombatState()) {
+            this.lookAt(targetPos);
+        }
     }
 
-    public lookAt(targetPos: THREE.Vector3) {
+    private isCombatState(): boolean {
+        const aiState = this.owner.ai?.getState();
+        return aiState === AIStateId.Attack
+            || aiState === AIStateId.Chase
+            || aiState === AIStateId.TakeCover
+            || aiState === AIStateId.Flank;
+    }
+
+    public lookAt(targetPos: THREE.Vector3, dt?: number, maxTurnRate: number = 4.5) {
         if (!this.owner.mesh) return;
 
         const dx = targetPos.x - this.owner.mesh.position.x;
@@ -242,8 +260,20 @@ export class AIMovement {
 
         if (dx * dx + dz * dz < 0.01) return;
 
-        const angle = Math.atan2(dx, dz);
-        this.owner.mesh.rotation.set(0, angle, 0);
+        const targetAngle = Math.atan2(dx, dz);
+        const currentAngle = this.owner.mesh.rotation.y;
+
+        if (!dt) {
+            this.owner.mesh.rotation.set(0, targetAngle, 0);
+            return;
+        }
+
+        let diff = targetAngle - currentAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+
+        const step = Math.sign(diff) * Math.min(Math.abs(diff), maxTurnRate * dt);
+        this.owner.mesh.rotation.set(0, currentAngle + step, 0);
     }
 
     public isMoving(): boolean {

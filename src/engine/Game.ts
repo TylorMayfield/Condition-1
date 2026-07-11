@@ -4,14 +4,13 @@ import { Time } from './Time';
 import { Input } from './Input';
 import { GameObject } from './GameObject';
 import { SoundManager } from './SoundManager';
-import { Player } from '../game/Player'; // Import Player type
-import { GameMode } from '../game/gamemodes/GameMode';
-import { TeamDeathmatchGameMode } from '../game/gamemodes/TeamDeathmatchGameMode';
+import type { GameMode } from '../game/gamemodes/GameMode';
 import { WeatherManager } from '../game/WeatherManager';
 import { WeatherEffects } from '../game/WeatherEffects';
 import { BallisticsManager } from '../game/BallisticsManager';
 
 import { HUDManager } from '../game/HUDManager';
+import type { IHUDService } from '../game/services/IHUDService';
 import { SquadManager } from '../game/SquadManager';
 import { SkyboxManager } from '../game/SkyboxManager';
 import { PostProcessingManager } from './PostProcessingManager';
@@ -21,6 +20,10 @@ import { Profiler } from './Profiler';
 import { RecastNavigation } from '../game/ai/RecastNavigation';
 import { LevelEditor } from '../game/editor/LevelEditor';
 import { SettingsManager } from '../game/SettingsManager';
+import type { LevelGenerator } from '../game/LevelGenerator';
+import type { Player } from '../game/Player';
+import type { GameplayMapData } from '../game/maps/GameplayMapData';
+import type { CampaignDifficulty, CampaignTeam } from '../game/campaign/CampaignService';
 
 export class Game {
     public renderer: THREE.WebGLRenderer;
@@ -44,22 +47,25 @@ export class Game {
     public timeScale: number = 1.0;
     public renderingEnabled: boolean = true;
 
-    public gameMode: GameMode;
+    public gameMode!: GameMode;
     public weatherManager: WeatherManager;
     public weatherEffects: WeatherEffects;
     public ballisticsManager: BallisticsManager;
 
-    public hudManager: HUDManager;
+    public hudManager: IHUDService;
     public squadManager: SquadManager;
     public skyboxManager: SkyboxManager;
     public postProcessingManager?: PostProcessingManager;
     public profiler: Profiler;
     public availableSpawns: { T: THREE.Vector3[], CT: THREE.Vector3[] } = { T: [], CT: [] };
+    public gameplayMapData: GameplayMapData = { bombSites: [], buyZones: [], hostageSpawns: [], rescueZones: [] };
+    public currentMapName: string = '';
+    public campaignTeam: CampaignTeam = 'TaskForce';
+    public campaignDifficulty: CampaignDifficulty = 'recruit';
 
     public recastNav: RecastNavigation;
     public levelEditor: LevelEditor;
-    // @ts-ignore
-    public levelGenerator: any; // Type as any to avoid circular import with LevelGenerator
+    public levelGenerator!: LevelGenerator;
 
     constructor() {
         // Init Renderer
@@ -125,9 +131,6 @@ export class Game {
         this.input = new Input(this.settingsManager);
         this.soundManager = new SoundManager();
         this.soundManager.init(this.camera); // Initialize 3D positional audio
-
-        // Init Game Mode (Default to TDM)
-        this.gameMode = new TeamDeathmatchGameMode(this);
 
         this.weatherManager = new WeatherManager(this);
         this.weatherEffects = new WeatherEffects(this);
@@ -259,8 +262,8 @@ export class Game {
         if (this.isRunning) return;
         this.isRunning = true;
         
-        // Only lock if NOT Mallow Mode (which is pointer-based)
-        if (this.gameMode.constructor.name !== 'MallowMightGameMode') {
+        // Only lock if the active mode uses FPS pointer lock.
+        if (this.gameMode.usesPointerLock()) {
             this.input.lockCursor(); 
         }
 
@@ -281,9 +284,10 @@ export class Game {
 
         if (this.isPaused) {
             this.input.unlockCursor();
+            this.input.clearInputState();
         } else {
             // Restore lock only if appropriate
-            if (this.gameMode.constructor.name !== 'MallowMightGameMode') {
+            if (this.gameMode.usesPointerLock()) {
                 this.input.lockCursor();
             }
         }
