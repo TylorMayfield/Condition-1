@@ -214,16 +214,22 @@ export class MenuSystem {
         }
     }
 
-    public hide() {
+    public hide(): Promise<boolean> {
         if (this.overlay) {
             this.overlay.style.display = 'none';
             this.isVisible = false;
-            this.isVisible = false;
             this.game.isPaused = false;
             this.game.setMenuMode(false); // Restore
-            void this.game.input.lockCursor();
             this.isGameStarted = true;
+
+            // Keep this request in the same synchronous user-gesture call stack as
+            // Resume/Deploy. Browsers reject pointer lock once that activation is
+            // lost, so callers that need to observe the result can await it, but
+            // the request itself is started here before hide() returns.
+            return this.game.input.lockCursor();
         }
+
+        return Promise.resolve(false);
     }
 
     public toggle() {
@@ -417,14 +423,24 @@ export class MenuSystem {
         btn.textContent = 'Deploy';
         btn.className = 'c1-deploy-btn';
 
-        btn.addEventListener('click', () => {
-            // Remove loading screen
-            loadingScreen?.remove();
+        let deployed = false;
+        const deploy = () => {
+            if (deployed) return;
+            deployed = true;
 
-            // Hide Menu and Lock Cursor
-            // Must be called directly in click handler for pointer lock to work
-            this.hide();
+            loadingScreen?.remove();
+            void this.hide();
+        };
+
+        btn.addEventListener('pointerdown', (event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            // pointerdown is the earliest reliable activation event for Pointer Lock.
+            deploy();
         });
+        // Preserve keyboard activation for the Deploy button.
+        btn.addEventListener('click', deploy);
 
         loadingScreen.appendChild(btn);
     }
