@@ -264,6 +264,16 @@ export class EnemyAI {
             }
         }
 
+        // The bomb carrier must keep making progress toward the site even when the
+        // combat FSM briefly selects chase/alert movement. It can still aim and
+        // fire while moving, but it should not abandon the round objective.
+        if (this.blackboard.objectiveRole === 'carrier' && this.blackboard.objectiveDestination) {
+            const pos = this.getOwnerPosition();
+            if (pos && pos.distanceTo(this.blackboard.objectiveDestination) > 1.5) {
+                this.movement.moveTo(this.blackboard.objectiveDestination);
+            }
+        }
+
         this.movement.update();
         this.updateLookDirection(dt);
 

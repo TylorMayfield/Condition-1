@@ -30,6 +30,7 @@ export class TeamDeathmatchGameMode extends GameMode {
     private readonly objectiveMode: boolean;
     private bomb: BombObjective | null = null;
     private bombCarrier: GameObject | null = null;
+    private attackSiteDestination: THREE.Vector3 | null = null;
     private economy = new EconomySystem();
     private purchaseService = new PurchaseService(this.economy);
     private playerSide: CampaignTeam = 'TaskForce';
@@ -148,7 +149,10 @@ export class TeamDeathmatchGameMode extends GameMode {
         }
 
         // Update round timer during active round
-        if (this.objectiveMode && this.updateBombObjective(dt)) return;
+        if (this.objectiveMode) {
+            this.updateObjectiveOrders();
+            if (this.updateBombObjective(dt)) return;
+        }
         this.roundTimer -= dt;
         this.hud.showRoundTimer(this.getFormattedRoundTime());
 
@@ -376,6 +380,7 @@ export class TeamDeathmatchGameMode extends GameMode {
         this.bombCarrier = attackerActors[(this.roundNumber - 1) % Math.max(1, attackerActors.length)] ?? null;
         if (this.bombCarrier && this.bomb) this.bomb.reset(this.objectiveActorId(this.bombCarrier));
         const selectedSite = sites[(this.roundNumber - 1) % sites.length];
+        this.attackSiteDestination = selectedSite.center.clone();
         const attackRoles = AITeamCoordinator.assignSquadRoles(attackers.length, true);
         const defenseRoles = AITeamCoordinator.assignSquadRoles(defenders.length, false);
         attackers.forEach((bot, i) => {
@@ -400,6 +405,55 @@ export class TeamDeathmatchGameMode extends GameMode {
     private objectiveActorId(actor: GameObject): string { return actor === this.game.player ? 'player' : actor instanceof Enemy ? actor.name : `entity-${actor.body?.id ?? 0}`; }
 
     private actorPosition(actor: GameObject): THREE.Vector3 | null { return actor.body ? new THREE.Vector3(actor.body.position.x, actor.body.position.y, actor.body.position.z) : null; }
+
+    /** Keep bot orders in sync with the live bomb state instead of relying on round-start orders. */
+    private updateObjectiveOrders(): void {
+        if (!this.bomb) return;
+
+        const attackers = [...this.opForAlive].filter((go): go is Enemy => go instanceof Enemy && go.health > 0);
+        const defenders = [...this.taskForceAlive].filter((go): go is Enemy => go instanceof Enemy && go.health > 0);
+
+        if (this.bomb.state === ObjectiveState.Dropped) {
+            let recoveryBot: Enemy | null = null;
+            let closestDistance = Infinity;
+            for (const bot of attackers) {
+                const pos = this.actorPosition(bot);
+                const distance = pos?.distanceTo(this.bomb.position) ?? Infinity;
+                if (distance < closestDistance) { closestDistance = distance; recoveryBot = bot; }
+            }
+            for (const bot of attackers) {
+                if (bot === recoveryBot) {
+                    bot.ai.blackboard.objectiveDestination = this.bomb.position.clone();
+                    bot.ai.blackboard.objectiveRole = 'carrier';
+                }
+            }
+            return;
+        }
+
+        if (this.bomb.state === ObjectiveState.Planted || this.bomb.state === ObjectiveState.Defusing) {
+            // Attackers collapse back onto the planted site and hold it; defenders
+            // stop anchoring the old sites and commit to the retake/defuse.
+            for (const bot of attackers) {
+                bot.ai.blackboard.objectiveDestination = this.bomb.position.clone();
+                bot.ai.blackboard.objectiveRole = 'anchor';
+            }
+            for (const bot of defenders) {
+                bot.ai.blackboard.objectiveDestination = this.bomb.position.clone();
+                bot.ai.blackboard.objectiveRole = 'retake';
+            }
+            return;
+        }
+
+        // Carrier identity may change after a recovery. Reassert it every frame so
+        // only the actual carrier receives the non-negotiable plant-site order.
+        for (const bot of attackers) {
+            if (bot === this.bombCarrier) {
+                bot.ai.blackboard.objectiveRole = 'carrier';
+                if (this.attackSiteDestination) bot.ai.blackboard.objectiveDestination = this.attackSiteDestination.clone();
+            }
+            else if (bot.ai.blackboard.objectiveRole === 'carrier') bot.ai.blackboard.objectiveRole = 'support';
+        }
+    }
 
     private updateBombObjective(dt: number): boolean {
         if (!this.bomb) return false;
